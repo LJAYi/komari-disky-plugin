@@ -1,0 +1,32 @@
+{
+  "name": "komari-disky-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Komari plugin for versioned resource snapshots and topology.",
+  "license": "MIT",
+  "scripts": {
+    "check": "komari-plugin-dev check",
+    "build": "komari-plugin-dev build",
+    "pack": "komari-plugin-dev pack",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build && npm run check",
+    "plugin:install": "komari-plugin-dev install --enable",
+    "dev": "komari-plugin-dev dev"
+  },
+  "komari": {
+    "source": "src/plugin.ts",
+    "files": [
+      "pages"
+    ]
+  },
+  "dependencies": {
+    "@komari-monitor/plugin-sdk": "^1.4.1"
+  },
+  "devDependencies": {
+    "@komari-monitor/plugin-dev": "^1.4.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  }
+}
