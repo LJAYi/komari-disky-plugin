@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Komari Disky</title>
+    <style>
+      :root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; }
+      body { margin: 0; padding: 24px; background: #0f1115; color: #eef1f5; }
+      main { max-width: 920px; margin: auto; }
+      h1 { font-size: 24px; margin: 0 0 6px; }
+      p { color: #a9b1bd; margin: 0 0 22px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+      article { border: 1px solid #2b313b; background: #171a20; border-radius: 12px; padding: 16px; }
+      strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
+      span { color: #a9b1bd; }
+      footer { margin-top: 18px; color: #7f8997; font-size: 13px; }
+      .error { color: #ff8f8f; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Komari Disky</h1>
+      <p>设备侧 Provider 最近提交的资源快照概览。</p>
+      <section class="grid" id="overview" aria-live="polite"></section>
+      <footer id="updated">正在读取…</footer>
+    </main>
+    <script>
+      const labels = {
+        clients: "设备",
+        providers: "Provider",
+        snapshots: "快照",
+        resources: "资源",
+        relationships: "关系",
+        stale: "已过期"
+      };
+      fetch("/api/disky/v1/overview", { credentials: "same-origin" })
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        })
+        .then(({ data }) => {
+          document.querySelector("#overview").innerHTML = Object.entries(labels)
+            .map(([key, label]) => `<article><strong>${Number(data[key] || 0)}</strong><span>${label}</span></article>`)
+            .join("");
+          document.querySelector("#updated").textContent = `更新时间：${new Date(data.generated_at).toLocaleString()}`;
+        })
+        .catch((error) => {
+          document.querySelector("#updated").className = "error";
+          document.querySelector("#updated").textContent = `读取失败：${error.message}`;
+        });
+    </script>
+  </body>
+</html>
