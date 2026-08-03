@@ -8,6 +8,7 @@ import type {
 export const LIMITS = {
   maxResources: 5000,
   maxRelationships: 10000,
+  maxCapabilities: 64,
   maxLabels: 64,
   maxMetrics: 128,
   maxAttributes: 128,
@@ -36,6 +37,7 @@ export function parseSnapshotInput(value: unknown): ResourceSnapshotInput {
     "mode",
     "provider",
     "provider_instance",
+    "capabilities",
     "snapshot_id",
     "sequence",
     "collected_at",
@@ -51,6 +53,9 @@ export function parseSnapshotInput(value: unknown): ResourceSnapshotInput {
   if (input.mode !== "full") throw new ValidationError("mode must be full");
   const provider = providerName(input.provider, "provider");
   const providerInstance = identifier(input.provider_instance, "provider_instance");
+  const capabilities = input.capabilities === undefined
+    ? undefined
+    : capabilityList(input.capabilities, "capabilities");
   const snapshotID = identifier(input.snapshot_id, "snapshot_id");
   const sequence = integer(input.sequence, "sequence", 1, Number.MAX_SAFE_INTEGER);
   const collectedAt = timestamp(input.collected_at, "collected_at");
@@ -91,6 +96,7 @@ export function parseSnapshotInput(value: unknown): ResourceSnapshotInput {
     mode: "full",
     provider,
     provider_instance: providerInstance,
+    ...(capabilities === undefined ? {} : { capabilities }),
     snapshot_id: snapshotID,
     sequence,
     collected_at: collectedAt,
@@ -164,6 +170,15 @@ function providerName(value: unknown, label: string): string {
     throw new ValidationError(`${label} must be a lowercase namespace`);
   }
   return value;
+}
+
+function capabilityList(value: unknown, label: string): string[] {
+  const input = arrayValue(value, label, LIMITS.maxCapabilities);
+  const result = input.map((item, index) => providerName(item, `${label}[${index}]`));
+  if (new Set(result).size !== result.length) {
+    throw new ValidationError(`${label} contains duplicate entries`);
+  }
+  return result.sort((left, right) => left.localeCompare(right));
 }
 
 function identifier(value: unknown, label: string): string {

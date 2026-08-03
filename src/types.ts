@@ -7,6 +7,7 @@ export interface ResourceSnapshotInput {
   mode: "full";
   provider: string;
   provider_instance: string;
+  capabilities?: string[];
   snapshot_id: string;
   sequence: number;
   collected_at: string;
