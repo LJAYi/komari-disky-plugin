@@ -5,6 +5,7 @@ import type {
   SnapshotOverview,
   SnapshotScope,
   SnapshotStore,
+  SnapshotSummary,
   SnapshotWatermark,
   StoredSnapshot,
 } from "./types";
@@ -135,6 +136,23 @@ export class SnapshotRegistry {
     };
   }
 
+  summaries(filter: Partial<SnapshotScope> = {}): SnapshotSummary[] {
+    return this.list(filter).map((snapshot) => ({
+      source_client_uuid: snapshot.source_client_uuid,
+      provider: snapshot.provider,
+      provider_instance: snapshot.provider_instance,
+      generation_id: snapshot.generation_id,
+      sequence: snapshot.sequence,
+      collected_at: snapshot.collected_at,
+      received_at: snapshot.received_at,
+      expires_at: snapshot.expires_at,
+      stale: snapshot.stale,
+      resource_count: snapshot.resources.length,
+      relationship_count: snapshot.relationships.length,
+      resource_types: countResourceTypes(snapshot.resources),
+    }));
+  }
+
   pruneExpired(): number {
     const now = this.now().getTime();
     let removed = 0;
@@ -175,6 +193,12 @@ export class SnapshotRegistry {
   private persist(): void {
     this.store.save(this.database);
   }
+}
+
+function countResourceTypes(resources: Array<{ type: string }>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const resource of resources) counts[resource.type] = (counts[resource.type] || 0) + 1;
+  return counts;
 }
 
 export function scopeKey(scope: SnapshotScope): string {
