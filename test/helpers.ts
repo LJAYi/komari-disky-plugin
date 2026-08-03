@@ -27,6 +27,7 @@ export function validSnapshot(overrides: Record<string, unknown> = {}): Record<s
     mode: "full",
     provider: "docker",
     provider_instance: "local",
+    capabilities: ["docker.swarm", "docker.container"],
     snapshot_id: "snapshot-1",
     sequence: 1,
     collected_at: "2026-08-03T00:00:00Z",

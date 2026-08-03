@@ -6,7 +6,15 @@ describe("parseSnapshotInput", () => {
   it("accepts and normalizes a version 1 snapshot", () => {
     const snapshot = parseSnapshotInput(validSnapshot());
     expect(snapshot.provider).toBe("docker");
+    expect(snapshot.capabilities).toEqual(["docker.container", "docker.swarm"]);
     expect(snapshot.resources[0].metrics?.cpu_percent).toBe(1.5);
+  });
+
+  it("rejects invalid or duplicate capabilities", () => {
+    expect(() => parseSnapshotInput(validSnapshot({ capabilities: ["Docker"] })))
+      .toThrow(/capabilities\[0\]/);
+    expect(() => parseSnapshotInput(validSnapshot({ capabilities: ["docker.engine", "docker.engine"] })))
+      .toThrow(/duplicate/);
   });
 
   it("requires a UUID generation, full mode, and sequence starting at one", () => {
