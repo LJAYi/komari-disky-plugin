@@ -7,6 +7,7 @@ export interface ResourceSnapshotInput {
   mode: "full";
   provider: string;
   provider_instance: string;
+  capabilities?: string[];
   snapshot_id: string;
   sequence: number;
   collected_at: string;
@@ -68,6 +69,21 @@ export interface SnapshotOverview {
   relationships: number;
   stale: number;
   generated_at: string;
+}
+
+export interface SnapshotSummary {
+  source_client_uuid: string;
+  provider: string;
+  provider_instance: string;
+  generation_id: string;
+  sequence: number;
+  collected_at: string;
+  received_at: string;
+  expires_at: string;
+  stale: boolean;
+  resource_count: number;
+  relationship_count: number;
+  resource_types: Record<string, number>;
 }
 
 export type ApplyResult =

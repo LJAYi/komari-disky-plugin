@@ -107,6 +107,35 @@ describe("snapshot HTTP route", () => {
     expect(retired.statusCode).toBe(409);
     expect(JSON.parse(retired.body).status).toBe("retired");
   });
+
+  it("keeps summaries paginated and requires an exact scope for full resources", async () => {
+    const context = agentContext("client-query");
+    await post(validSnapshot({ provider_instance: "query" }), context);
+
+    const anonymous = await getSnapshots({ view: "summary" }, {});
+    expect(anonymous.statusCode).toBe(401);
+
+    const summary = await getSnapshots(
+      { view: "summary", provider: "docker", limit: "1", offset: "0" },
+      adminContext(),
+    );
+    expect(summary.statusCode).toBe(200);
+    const summaryBody = JSON.parse(summary.body);
+    expect(summaryBody.data).toHaveLength(1);
+    expect(summaryBody.data[0].resource_types).toEqual({ "docker.container": 1 });
+    expect(summaryBody.data[0].resources).toBeUndefined();
+
+    const unsafeFull = await getSnapshots({ view: "full" }, adminContext());
+    expect(unsafeFull.statusCode).toBe(400);
+    const full = await getSnapshots({
+      view: "full",
+      client_uuid: "client-query",
+      provider: "docker",
+      provider_instance: "query",
+    }, adminContext());
+    expect(full.statusCode).toBe(200);
+    expect(JSON.parse(full.body).data.resources).toHaveLength(1);
+  });
 });
 
 function agentContext(clientUUID: string): PluginRequest["context"] {
@@ -114,6 +143,10 @@ function agentContext(clientUUID: string): PluginRequest["context"] {
     principal: { type: "agent", client_uuid: clientUUID, roles: ["client"] },
     client_uuid: clientUUID,
   };
+}
+
+function adminContext(): PluginRequest["context"] {
+  return { principal: { type: "user", user_uuid: "admin", roles: ["admin"] } };
 }
 
 async function post(
@@ -130,6 +163,24 @@ async function post(
     headers,
     query: {},
     body: JSON.stringify(body),
+    context,
+  }, response);
+  return response;
+}
+
+async function getSnapshots(
+  query: Record<string, string>,
+  context: PluginRequest["context"],
+): Promise<ResponseCapture> {
+  const handler = runtime.routes.get("GET /api/disky/v1/snapshots");
+  if (!handler) throw new Error("snapshot query route was not registered");
+  const response = new ResponseCapture();
+  await handler({
+    method: "GET",
+    url: "/api/disky/v1/snapshots",
+    headers: {},
+    query,
+    body: "",
     context,
   }, response);
   return response;

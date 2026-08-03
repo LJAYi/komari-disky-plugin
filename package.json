@@ -4,13 +4,18 @@
   "private": true,
   "description": "Komari plugin for versioned resource snapshots and topology.",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "komari-plugin-dev check",
     "build": "komari-plugin-dev build",
-    "pack": "komari-plugin-dev pack",
+    "pack": "node scripts/pack.mjs",
+    "pack:verify": "node scripts/verify-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build && npm run check",
+    "artifact": "npm run verify && npm run pack:verify",
     "plugin:install": "komari-plugin-dev install --enable",
     "dev": "komari-plugin-dev dev"
   },
@@ -26,6 +31,7 @@
   "devDependencies": {
     "@komari-monitor/plugin-dev": "^1.4.1",
     "@types/node": "^22.0.0",
+    "archiver": "7.0.1",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
   }

@@ -5,50 +5,259 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Komari Disky</title>
     <style>
-      :root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; }
+      :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
       body { margin: 0; padding: 24px; background: #0f1115; color: #eef1f5; }
-      main { max-width: 920px; margin: auto; }
+      main { max-width: 1120px; margin: auto; }
       h1 { font-size: 24px; margin: 0 0 6px; }
-      p { color: #a9b1bd; margin: 0 0 22px; }
+      h2 { font-size: 18px; margin: 28px 0 12px; }
+      p { color: #a9b1bd; margin: 0 0 20px; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
-      article { border: 1px solid #2b313b; background: #171a20; border-radius: 12px; padding: 16px; }
-      strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
-      span { color: #a9b1bd; }
+      .metric, .snapshot { border: 1px solid #2b313b; background: #171a20; border-radius: 12px; padding: 16px; }
+      .metric strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
+      .muted, .metric span { color: #a9b1bd; }
+      .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
+      input, button { border: 1px solid #343b47; background: #171a20; color: inherit; border-radius: 8px; padding: 9px 12px; }
+      input { flex: 1; min-width: 0; }
+      button { cursor: pointer; }
+      button:hover { border-color: #6f7d91; }
+      .snapshot { margin-bottom: 10px; }
+      .snapshot-head { display: flex; gap: 10px; align-items: start; justify-content: space-between; }
+      .snapshot-title { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
+      .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+      .badge { background: #252b35; border-radius: 999px; padding: 2px 8px; color: #c5ccd6; }
+      .stale { color: #ffb5b5; background: #47282b; }
+      .types { overflow-wrap: anywhere; }
+      .details { margin-top: 14px; border-top: 1px solid #2b313b; padding-top: 12px; overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; min-width: 760px; }
+      th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #282e37; }
+      th { color: #a9b1bd; font-weight: 500; }
+      td { overflow-wrap: anywhere; }
+      pre { max-width: 460px; max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 5px 0; color: #bbc4d0; }
       footer { margin-top: 18px; color: #7f8997; font-size: 13px; }
       .error { color: #ff8f8f; }
+      .hidden { display: none; }
+      @media (max-width: 640px) { body { padding: 16px; } .snapshot-head { display: block; } }
     </style>
   </head>
   <body>
     <main>
       <h1>Komari Disky</h1>
-      <p>设备侧 Provider 最近提交的资源快照概览。</p>
+      <p>设备侧 Provider 最近提交的资源快照概览。管理员可以展开查看通用资源与拓扑数据。</p>
       <section class="grid" id="overview" aria-live="polite"></section>
+
+      <section id="resources" class="hidden">
+        <h2>资源快照</h2>
+        <div class="toolbar">
+          <input id="search" type="search" placeholder="筛选设备、Provider、实例或资源类型" aria-label="筛选资源快照">
+          <button id="refresh" type="button">刷新</button>
+        </div>
+        <div id="snapshots"></div>
+        <button id="more" class="hidden" type="button">加载更多</button>
+      </section>
+
       <footer id="updated">正在读取…</footer>
     </main>
     <script>
+      const state = { summaries: [], offset: 0, total: 0, loading: false };
       const labels = {
-        clients: "设备",
-        providers: "Provider",
-        snapshots: "快照",
-        resources: "资源",
-        relationships: "关系",
-        stale: "已过期"
+        clients: "设备", providers: "Provider", snapshots: "快照",
+        resources: "资源", relationships: "关系", stale: "已过期"
       };
-      fetch("/api/disky/v1/overview", { credentials: "same-origin" })
-        .then((response) => {
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return response.json();
-        })
-        .then(({ data }) => {
-          document.querySelector("#overview").innerHTML = Object.entries(labels)
-            .map(([key, label]) => `<article><strong>${Number(data[key] || 0)}</strong><span>${label}</span></article>`)
-            .join("");
-          document.querySelector("#updated").textContent = `更新时间：${new Date(data.generated_at).toLocaleString()}`;
-        })
-        .catch((error) => {
-          document.querySelector("#updated").className = "error";
-          document.querySelector("#updated").textContent = `读取失败：${error.message}`;
+
+      document.querySelector("#search").addEventListener("input", renderSummaries);
+      document.querySelector("#refresh").addEventListener("click", () => loadSummaries(true));
+      document.querySelector("#more").addEventListener("click", () => loadSummaries(false));
+
+      Promise.all([loadOverview(), loadSummaries(true)]).catch(showError);
+
+      async function loadOverview() {
+        const { data } = await requestJSON("/api/disky/v1/overview");
+        const container = document.querySelector("#overview");
+        container.replaceChildren(...Object.entries(labels).map(([key, label]) => {
+          const card = element("article", "metric");
+          const value = element("strong");
+          value.textContent = String(Number(data[key] || 0));
+          const caption = element("span");
+          caption.textContent = label;
+          card.append(value, caption);
+          return card;
+        }));
+        document.querySelector("#updated").textContent = `更新时间：${formatTime(data.generated_at)}`;
+      }
+
+      async function loadSummaries(reset) {
+        if (state.loading) return;
+        state.loading = true;
+        if (reset) { state.offset = 0; state.summaries = []; }
+        try {
+          const query = new URLSearchParams({ view: "summary", offset: String(state.offset), limit: "100" });
+          const result = await requestJSON(`/api/disky/v1/snapshots?${query}`);
+          state.summaries.push(...result.data);
+          state.offset += result.data.length;
+          state.total = result.pagination.total;
+          document.querySelector("#resources").classList.remove("hidden");
+          document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
+          renderSummaries();
+        } catch (error) {
+          if (error.status !== 401 && error.status !== 403) throw error;
+          // Public visitors retain the aggregate overview without receiving
+          // client UUIDs, topology, labels, or provider-specific attributes.
+        } finally {
+          state.loading = false;
+        }
+      }
+
+      function renderSummaries() {
+        const needle = document.querySelector("#search").value.trim().toLowerCase();
+        const visible = state.summaries.filter((snapshot) => {
+          const text = [snapshot.source_client_uuid, snapshot.provider, snapshot.provider_instance,
+            ...Object.keys(snapshot.resource_types || {})].join(" ").toLowerCase();
+          return !needle || text.includes(needle);
         });
+        const container = document.querySelector("#snapshots");
+        container.replaceChildren(...visible.map(snapshotCard));
+        if (visible.length === 0) {
+          const empty = element("p", "muted");
+          empty.textContent = state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。";
+          container.append(empty);
+        }
+      }
+
+      function snapshotCard(snapshot) {
+        const card = element("article", "snapshot");
+        const head = element("div", "snapshot-head");
+        const identity = element("div");
+        const title = element("div", "snapshot-title");
+        title.textContent = `${snapshot.provider} / ${snapshot.provider_instance}`;
+        const client = element("div", "muted");
+        client.textContent = snapshot.source_client_uuid;
+        identity.append(title, client);
+        const button = element("button");
+        button.type = "button";
+        button.textContent = "展开资源";
+        button.addEventListener("click", () => toggleDetails(card, button, snapshot));
+        head.append(identity, button);
+
+        const badges = element("div", "badges");
+        badges.append(badge(`${snapshot.resource_count} 资源`), badge(`${snapshot.relationship_count} 关系`));
+        if (snapshot.stale) badges.append(badge("stale", true));
+        const types = element("div", "muted types");
+        const entries = Object.entries(snapshot.resource_types || {}).sort(([a], [b]) => a.localeCompare(b));
+        types.textContent = entries.length
+          ? entries.map(([type, count]) => `${type} × ${count}`).join(" · ")
+          : "无资源类型";
+        card.append(head, badges, types);
+        return card;
+      }
+
+      async function toggleDetails(card, button, summary) {
+        const existing = card.querySelector(".details");
+        if (existing) {
+          existing.remove();
+          button.textContent = "展开资源";
+          return;
+        }
+        button.disabled = true;
+        button.textContent = "读取中…";
+        try {
+          const query = new URLSearchParams({
+            view: "full",
+            client_uuid: summary.source_client_uuid,
+            provider: summary.provider,
+            provider_instance: summary.provider_instance
+          });
+          const { data } = await requestJSON(`/api/disky/v1/snapshots?${query}`);
+          card.append(snapshotDetails(data));
+          button.textContent = "收起资源";
+        } catch (error) {
+          button.textContent = "读取失败";
+          showError(error);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function snapshotDetails(snapshot) {
+        const details = element("div", "details");
+        const table = document.createElement("table");
+        const header = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        ["名称", "类型", "状态", "标签", "关系", "属性 / 指标"].forEach((label) => {
+          const th = document.createElement("th"); th.textContent = label; headerRow.append(th);
+        });
+        header.append(headerRow);
+        const body = document.createElement("tbody");
+        const relations = relationIndex(snapshot.relationships || []);
+        for (const resource of snapshot.resources || []) {
+          const row = document.createElement("tr");
+          row.append(
+            cell(resource.name || resource.id, resource.name ? resource.id : ""),
+            cell(resource.type),
+            cell(resource.status || "—"),
+            cell(keyValues(resource.labels)),
+            cell((relations[resource.id] || []).join("\n") || "—"),
+            jsonCell({ attributes: resource.attributes || {}, metrics: resource.metrics || {} })
+          );
+          body.append(row);
+        }
+        table.append(header, body);
+        details.append(table);
+        return details;
+      }
+
+      function relationIndex(relationships) {
+        const index = {};
+        for (const relation of relationships) {
+          (index[relation.source] ||= []).push(`${relation.type} → ${relation.target}`);
+          (index[relation.target] ||= []).push(`${relation.type} ← ${relation.source}`);
+        }
+        return index;
+      }
+
+      function cell(primary, secondary = "") {
+        const td = document.createElement("td");
+        td.textContent = primary || "—";
+        if (secondary) {
+          const extra = element("div", "muted"); extra.textContent = secondary; td.append(extra);
+        }
+        return td;
+      }
+
+      function jsonCell(value) {
+        const td = document.createElement("td");
+        const details = document.createElement("details");
+        const summary = document.createElement("summary"); summary.textContent = "查看";
+        const pre = document.createElement("pre"); pre.textContent = JSON.stringify(value, null, 2);
+        details.append(summary, pre); td.append(details); return td;
+      }
+
+      function keyValues(value) {
+        const entries = Object.entries(value || {});
+        return entries.length ? entries.map(([key, item]) => `${key}=${item}`).join("\n") : "—";
+      }
+
+      function badge(text, isStale = false) {
+        const item = element("span", `badge${isStale ? " stale" : ""}`); item.textContent = text; return item;
+      }
+
+      function element(tag, className = "") {
+        const item = document.createElement(tag); if (className) item.className = className; return item;
+      }
+
+      async function requestJSON(url) {
+        const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(body.error || `HTTP ${response.status}`); error.status = response.status; throw error;
+        }
+        return body;
+      }
+
+      function formatTime(value) { return new Date(value).toLocaleString(); }
+      function showError(error) {
+        const footer = document.querySelector("#updated"); footer.className = "error";
+        footer.textContent = `读取失败：${error.message}`;
+      }
     </script>
   </body>
 </html>
