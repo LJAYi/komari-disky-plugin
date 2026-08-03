@@ -101,13 +101,48 @@ function listSnapshots(request: PluginRequest, response: PluginResponse): void {
     jsonResponse(response, { ok: false, error: "invalid query filter" }, 400);
     return;
   }
+  const filter = {
+    ...(sourceClientUUID ? { source_client_uuid: sourceClientUUID } : {}),
+    ...(provider ? { provider } : {}),
+    ...(providerInstance ? { provider_instance: providerInstance } : {}),
+  };
+  const view = request.query.view || "summary";
+  if (view === "full") {
+    if (!sourceClientUUID || !provider || !providerInstance) {
+      jsonResponse(response, {
+        ok: false,
+        error: "full view requires client_uuid, provider, and provider_instance",
+      }, 400);
+      return;
+    }
+    const snapshot = registry.list(filter)[0];
+    if (!snapshot) {
+      jsonResponse(response, { ok: false, error: "snapshot not found" }, 404);
+      return;
+    }
+    jsonResponse(response, { ok: true, data: snapshot });
+    return;
+  }
+  if (view !== "summary") {
+    jsonResponse(response, { ok: false, error: "view must be summary or full" }, 400);
+    return;
+  }
+  const offset = boundedIntegerQuery(request.query.offset, 0, 0, 100000);
+  const limit = boundedIntegerQuery(request.query.limit, 50, 1, 100);
+  if (offset === null || limit === null) {
+    jsonResponse(response, { ok: false, error: "invalid pagination" }, 400);
+    return;
+  }
+  const summaries = registry.summaries(filter);
   jsonResponse(response, {
     ok: true,
-    data: registry.list({
-      ...(sourceClientUUID ? { source_client_uuid: sourceClientUUID } : {}),
-      ...(provider ? { provider } : {}),
-      ...(providerInstance ? { provider_instance: providerInstance } : {}),
-    }),
+    data: summaries.slice(offset, offset + limit),
+    pagination: {
+      offset,
+      limit,
+      total: summaries.length,
+      has_more: offset + limit < summaries.length,
+    },
   });
 }
 
@@ -134,6 +169,18 @@ async function configuredDefaultTTL(): Promise<number> {
 function optionalIdentifierQuery(value: string | undefined): string | undefined | null {
   if (value === undefined || value === "") return undefined;
   return /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$/.test(value) ? value : null;
+}
+
+function boundedIntegerQuery(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number | null {
+  if (value === undefined || value === "") return fallback;
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
 }
 
 function headerValue(request: PluginRequest, name: string): string {

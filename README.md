@@ -42,7 +42,8 @@ after TTL cleanup.
 | Method | Path / RPC | Access | Purpose |
 |---|---|---|---|
 | `POST` | `/api/disky/v1/snapshots?token=...` | Komari Agent token | Submit a full snapshot (`201`, duplicate `200`) |
-| `GET` | `/api/disky/v1/snapshots` | Admin session/API key | Query current snapshot details |
+| `GET` | `/api/disky/v1/snapshots?view=summary` | Admin session/API key | Query paginated snapshot summaries |
+| `GET` | `/api/disky/v1/snapshots?view=full&client_uuid=...&provider=...&provider_instance=...` | Admin session/API key | Query one exact snapshot |
 | `GET` | `/api/disky/v1/overview` | Public | Query aggregate counts only |
 | RPC | `plugin:disky.getOverview` | Public-safe | Query aggregate counts only |
 
@@ -55,6 +56,12 @@ as a query parameter, matching Komari's current Agent HTTP authentication.
 Malformed JSON returns `400`; schema or relationship-reference errors return
 `422`; stale, retired, or conflicting uploads return `409`; and a non-identity
 `Content-Encoding` returns `415`.
+
+The plugin page keeps the public view limited to aggregate counts. When opened
+by an administrator, it additionally shows searchable snapshot summaries and
+loads one full snapshot only when expanded. Resources are rendered through the
+generic `type`, `status`, `labels`, `attributes`, `metrics`, and relationship
+fields, so Docker, Compose, and Swarm do not require separate transport schemas.
 
 ## Limits and persistence
 
@@ -81,11 +88,19 @@ Requires Node.js 20 or newer.
 ```sh
 npm install
 npm run verify
+npm run artifact
 ```
 
 For local hot reload, create a gitignored `komari.local.json` as documented by
 [`@komari-monitor/plugin-dev`](https://github.com/komari-monitor/plugin-dev),
 then run `npm run dev`.
+
+`npm run artifact` creates a deterministic ZIP and matching SHA-256 file in
+`dist/`, packing sorted entries with fixed timestamps and modes and without
+runtime-dependent deflate output. CI runs against the locked npm dependency
+graph and uploads these files as workflow artifacts.
+Pushing a version tag such as `v0.1.0` additionally verifies that the tag,
+package, and plugin manifest versions match before creating the GitHub release.
 
 ## Status
 
