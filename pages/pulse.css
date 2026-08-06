@@ -25,21 +25,21 @@
 
 :root.dark {
   color-scheme: dark;
-  --pulse-bg: #07131d;
-  --pulse-surface: #0b1a26;
-  --pulse-surface-alt: #0e2230;
-  --pulse-surface-raised: #0c1c28;
-  --pulse-hover: #102838;
-  --pulse-border: #203746;
-  --pulse-border-subtle: rgba(32, 55, 70, .72);
-  --pulse-text: #d8e5ed;
-  --pulse-strong: #f0f6fa;
-  --pulse-muted: #8296a5;
-  --pulse-muted-soft: #657f90;
-  --pulse-blue: #38a4ef;
-  --pulse-blue-soft: #102d40;
-  --pulse-green: #4fd68a;
-  --pulse-green-soft: #102f23;
+  --pulse-bg: #0f172a;
+  --pulse-surface: #1e293b;
+  --pulse-surface-alt: #263449;
+  --pulse-surface-raised: #233044;
+  --pulse-hover: #29384d;
+  --pulse-border: #334155;
+  --pulse-border-subtle: rgba(51, 65, 85, .72);
+  --pulse-text: #f1f5f9;
+  --pulse-strong: #f8fafc;
+  --pulse-muted: #94a3b8;
+  --pulse-muted-soft: #718096;
+  --pulse-blue: #3b82f6;
+  --pulse-blue-soft: #1e3a5f;
+  --pulse-green: #34d399;
+  --pulse-green-soft: #173b35;
   --pulse-amber: #f7b731;
   --pulse-amber-soft: rgba(85, 58, 12, .22);
   --pulse-red: #ff655d;
@@ -442,7 +442,7 @@ main { padding-top: 10px; }
   color: var(--pulse-muted);
   border: 1px solid var(--pulse-border);
   border-radius: 5px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .05em;
 }
@@ -450,7 +450,7 @@ main { padding-top: 10px; }
 .view-toggle { overflow: hidden; border: 1px solid var(--pulse-border); border-radius: 5px; }
 .view-toggle button { border: 0; border-radius: 0; }
 .view-toggle button + button { border-left: 1px solid var(--pulse-border-subtle); }
-.toolbar-count { margin-left: auto; color: var(--pulse-muted); font-size: 10px; white-space: nowrap; }
+.toolbar-count { margin-left: auto; color: var(--pulse-muted); font-size: 12px; white-space: nowrap; }
 #snapshots { padding: 0; }
 .pulse-workspace { display: grid; gap: 14px; }
 
@@ -473,29 +473,29 @@ main { padding-top: 10px; }
   letter-spacing: .055em;
   text-transform: uppercase;
 }
-.pulse-table-title strong { color: var(--pulse-muted); font-size: 9px; font-weight: 720; }
-.pulse-table-title span { min-width: 20px; padding: 1px 5px; color: var(--pulse-blue); border-radius: 9px; background: var(--pulse-blue-soft); font-size: 9px; text-align: center; }
+.pulse-table-title strong { color: var(--pulse-muted); font-size: 11px; font-weight: 700; }
+.pulse-table-title span { min-width: 20px; padding: 1px 5px; color: var(--pulse-blue); border-radius: 9px; background: var(--pulse-blue-soft); font-size: 10px; text-align: center; }
 .pulse-table-scroll { width: 100%; overflow-x: auto; }
-.pulse-table { width: 100%; min-width: 920px; table-layout: fixed; border-collapse: collapse; }
+.pulse-table { width: 100%; min-width: 1240px; table-layout: fixed; border-collapse: collapse; }
 .pulse-table th {
   height: 29px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   color: var(--pulse-muted);
   border-bottom: 1px solid var(--pulse-border);
   background: var(--pulse-surface-raised);
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 650;
   letter-spacing: .07em;
   text-transform: uppercase;
 }
 .pulse-table td {
   height: 33px;
   min-width: 0;
-  padding: 3px 10px;
+  padding: 4px 12px;
   overflow: hidden;
   border-bottom: 1px solid var(--pulse-border-subtle);
   color: var(--pulse-text);
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -504,17 +504,30 @@ main { padding-top: 10px; }
 .pulse-table th:first-child, .pulse-table td:first-child { width: 17%; }
 .pulse-table th:nth-child(2), .pulse-table td:nth-child(2) { width: 13%; }
 .pulse-table th:nth-child(3), .pulse-table td:nth-child(3) { width: 18%; }
-.pulse-table td small { display: block; overflow: hidden; color: var(--pulse-muted-soft); font-size: 8px; text-overflow: ellipsis; }
+.hosts .pulse-table { min-width: 980px; }
+.hosts .pulse-table th:first-child, .hosts .pulse-table td:first-child { width: 18%; }
+.hosts .pulse-table th:nth-child(2), .hosts .pulse-table td:nth-child(2) { width: 15%; }
+.hosts .pulse-table th:nth-child(3), .hosts .pulse-table td:nth-child(3) { width: 10%; }
+.containers .pulse-table th:first-child, .containers .pulse-table td:first-child { width: 16%; }
+.containers .pulse-table th:nth-child(2), .containers .pulse-table td:nth-child(2) { width: 13%; }
+.containers .pulse-table th:nth-child(3), .containers .pulse-table td:nth-child(3) { width: 10%; }
+.containers .pulse-table th:nth-child(4), .containers .pulse-table td:nth-child(4) { width: 18%; }
+.containers .pulse-table th:nth-child(5), .containers .pulse-table td:nth-child(5) { width: 8%; }
+.containers .pulse-table th:nth-child(6), .containers .pulse-table td:nth-child(6) { width: 13%; }
+.containers .pulse-table th:nth-child(7), .containers .pulse-table td:nth-child(7) { width: 10%; }
+.containers .pulse-table th:nth-child(8), .containers .pulse-table td:nth-child(8) { width: 7%; }
+.containers .pulse-table th:nth-child(9), .containers .pulse-table td:nth-child(9) { width: 5%; }
+.pulse-table td small { display: block; overflow: hidden; color: var(--pulse-muted-soft); font-size: 10px; text-overflow: ellipsis; }
 .cell-primary { display: block; overflow: hidden; text-overflow: ellipsis; }
-.number-cell { color: var(--pulse-blue); text-align: center; }
+.number-cell { color: var(--pulse-text); text-align: right; }
 .name-cell { min-width: 0; display: flex; align-items: center; gap: 7px; }
-.name-cell strong { overflow: hidden; color: var(--pulse-strong); font-size: 10px; font-weight: 660; text-overflow: ellipsis; }
+.name-cell strong { overflow: hidden; color: var(--pulse-strong); font-size: 12px; font-weight: 650; text-overflow: ellipsis; }
 .row-chevron { width: 7px; flex: none; color: var(--pulse-muted-soft); font-size: 14px; line-height: 1; }
 .status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--pulse-muted); }
 .status-dot.good { background: var(--pulse-green); }.status-dot.warn { background: var(--pulse-amber); }.status-dot.bad { background: var(--pulse-red); }
-.pulse-table .status { font-size: 9px; }
+.pulse-table .status { font-size: 11px; }
 .pulse-table details { position: relative; overflow: visible; }
-.pulse-table summary { color: var(--pulse-blue); cursor: pointer; font-size: 9px; }
+.pulse-table summary { color: var(--pulse-blue); cursor: pointer; font-size: 11px; }
 .pulse-table details[open] pre {
   position: absolute;
   z-index: 20;
@@ -528,29 +541,29 @@ main { padding-top: 10px; }
   box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
 }
 .group-row td { height: 29px; color: var(--pulse-strong); background: color-mix(in srgb, var(--pulse-blue-soft) 45%, var(--pulse-surface-alt)); }
-.group-row strong { margin-right: 8px; font-size: 10px; }
-.group-row span { padding: 2px 6px; color: var(--pulse-blue); border-radius: 8px; background: var(--pulse-blue-soft); font-size: 8px; }
+.group-row strong { margin-right: 8px; font-size: 12px; }
+.group-row span { padding: 2px 6px; color: var(--pulse-blue); border-radius: 8px; background: var(--pulse-blue-soft); font-size: 10px; }
 
 footer { padding: 2px 2px 0; }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --pulse-bg: #07131d;
-    --pulse-surface: #0b1a26;
-    --pulse-surface-alt: #0e2230;
-    --pulse-surface-raised: #0c1c28;
-    --pulse-hover: #102838;
-    --pulse-border: #203746;
-    --pulse-border-subtle: rgba(32, 55, 70, .72);
-    --pulse-text: #d8e5ed;
-    --pulse-strong: #f0f6fa;
-    --pulse-muted: #8296a5;
-    --pulse-muted-soft: #657f90;
-    --pulse-blue: #38a4ef;
-    --pulse-blue-soft: #102d40;
-    --pulse-green: #4fd68a;
-    --pulse-green-soft: #102f23;
+    --pulse-bg: #0f172a;
+    --pulse-surface: #1e293b;
+    --pulse-surface-alt: #263449;
+    --pulse-surface-raised: #233044;
+    --pulse-hover: #29384d;
+    --pulse-border: #334155;
+    --pulse-border-subtle: rgba(51, 65, 85, .72);
+    --pulse-text: #f1f5f9;
+    --pulse-strong: #f8fafc;
+    --pulse-muted: #94a3b8;
+    --pulse-muted-soft: #718096;
+    --pulse-blue: #3b82f6;
+    --pulse-blue-soft: #1e3a5f;
+    --pulse-green: #34d399;
+    --pulse-green-soft: #173b35;
     --pulse-amber: #f7b731;
     --pulse-amber-soft: rgba(85, 58, 12, .22);
     --pulse-red: #ff655d;

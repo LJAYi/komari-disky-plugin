@@ -120,9 +120,9 @@
           <div class="toolbar-row">
             <div class="status-filter" role="group" aria-label="状态筛选">
               <button class="active" type="button" data-status-filter="all">All</button>
-              <button type="button" data-status-filter="running"><span class="filter-dot good"></span>Running</button>
+              <button type="button" data-status-filter="running"><span class="filter-dot good"></span>Healthy</button>
               <button type="button" data-status-filter="degraded"><span class="filter-dot warn"></span>Degraded</button>
-              <button type="button" data-status-filter="stopped"><span class="filter-dot bad"></span>Stopped</button>
+              <button type="button" data-status-filter="stopped"><span class="filter-dot bad"></span>Offline</button>
             </div>
             <label class="filter-select"><span>FILTER</span><select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select></label>
             <label class="check"><input id="show-stale" type="checkbox">显示已过期</label>
@@ -363,6 +363,7 @@
           const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
           const context = orchestrationContext(snapshot);
           const resources = (snapshot.resources || []).filter((item) => item.type === "docker.container");
+          const runtime = dockerRuntime(snapshot);
           const rows = resources.map((resource) => {
             const attrs = resource.attributes || {};
             const compose = context.compose.get(resource.id);
@@ -372,16 +373,16 @@
             const orchestration = compose ? `${compose.project} / ${compose.service}` : swarm ? `Swarm / ${swarm.service}` : "Standalone";
             return [
               statusNameCell(resource.name || resource.id, resource.status),
-              textCell(host), textCell(shortImage(attrs.image || "—")), statusCell(resource.status),
+              textCell(host), textCell(runtime), textCell(shortImage(attrs.image || "—")), statusCell(resource.status),
               textCell(orchestration), textCell(attrs.status_text || "—"),
               textCell(formatCreated(attrs.created)), resourceDetailCell(resource)
             ];
           }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
           if (rows.length) groups.push({ host, rows });
         }
-        const headers = ["Container", "Host", "Image", "State", "Orchestration", "Docker status", "Created", "Details"];
+        const headers = ["Container", "Host", "Runtime", "Image", "State", "Workload", "Docker status", "Created", "Details"];
         const count = groups.reduce((sum, group) => sum + group.rows.length, 0);
-        return state.grouped ? groupedTablePanel("Containers", count, headers, groups) : pulseTablePanel("Containers", count, headers, groups.flatMap((group) => group.rows), "containers");
+        return state.grouped ? groupedTablePanel("Containers", count, headers, groups, "containers") : pulseTablePanel("Containers", count, headers, groups.flatMap((group) => group.rows), "containers");
       }
 
       function composeTable(snapshots, needle) {
@@ -457,6 +458,12 @@
         return { compose, swarm };
       }
 
+      function dockerRuntime(snapshot) {
+        const engine = (snapshot.resources || []).find((item) => item.type === "docker.engine");
+        const version = engine?.attributes?.server_version;
+        return version ? `docker ${version}` : "docker";
+      }
+
       function pulseTablePanel(title, count, headers, rows, kind = "") {
         const panel = element("section", `pulse-table-panel${kind ? ` ${kind}` : ""}`);
         const heading = element("div", "pulse-table-title");
@@ -472,8 +479,8 @@
         table.append(thead, tbody); wrap.append(table); panel.append(heading, wrap); return panel;
       }
 
-      function groupedTablePanel(title, count, headers, groups) {
-        const panel = pulseTablePanel(title, count, headers, []);
+      function groupedTablePanel(title, count, headers, groups, kind = "") {
+        const panel = pulseTablePanel(title, count, headers, [], kind);
         const tbody = panel.querySelector("tbody");
         for (const group of groups) {
           const groupRow = element("tr", "group-row"); const td = document.createElement("td"); td.colSpan = headers.length;
