@@ -96,7 +96,10 @@
     <header class="app-header">
       <div class="brand"><span class="brand-mark"></span><strong>Disky</strong></div>
       <nav class="primary-nav" aria-label="资源类型">
-        <button class="active" type="button" aria-current="page">Docker</button>
+        <button class="active" type="button" data-provider-view="docker" aria-current="page">Docker</button>
+        <button type="button" data-provider-view="proxmox">Proxmox</button>
+        <button type="button" data-provider-view="windows_wsl">WSL</button>
+        <button type="button" data-provider-view="slurm">Slurm</button>
       </nav>
       <div class="app-actions"><span class="connection-status">Connected</span><button id="header-refresh" type="button" aria-label="刷新" title="刷新">↻</button></div>
     </header>
@@ -165,7 +168,7 @@
       const state = {
         summaries: [], offset: 0, total: 0, loading: false,
         clientNames: new Map(), clients: new Map(), expanded: new Map(),
-        fullSnapshots: new Map(), view: "overview", statusFilter: "all", grouped: true
+        fullSnapshots: new Map(), view: "overview", providerView: "docker", statusFilter: "all", grouped: true
       };
       const overviewLabels = {
         clients: "设备", providers: "Provider", snapshots: "快照",
@@ -190,6 +193,17 @@
       document.querySelectorAll("[data-disky-view]").forEach((button) => button.addEventListener("click", () => {
         state.view = button.dataset.diskyView;
         document.querySelectorAll("[data-disky-view]").forEach((item) => item.classList.toggle("active", item.dataset.diskyView === state.view));
+        renderSummaries();
+      }));
+      document.querySelectorAll("[data-provider-view]").forEach((button) => button.addEventListener("click", async () => {
+        state.providerView = button.dataset.providerView;
+        if (state.providerView === "docker") state.view = "overview";
+        document.querySelectorAll("[data-provider-view]").forEach((item) => {
+          const active = item === button; item.classList.toggle("active", active);
+          if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+        });
+        try { await preloadSnapshots(state.summaries.filter((item) => item.provider === state.providerView && !item.stale)); }
+        catch (error) { showError(error); }
         renderSummaries();
       }));
 
@@ -223,7 +237,7 @@
           state.summaries.push(...result.data);
           state.offset += result.data.length;
           state.total = result.pagination.total;
-          await preloadSnapshots(result.data);
+          await preloadSnapshots(result.data.filter((item) => item.provider === state.providerView));
           document.querySelector("#resources").classList.remove("hidden");
           document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
           updateProviders();
@@ -238,7 +252,7 @@
       }
 
       async function preloadSnapshots(summaries) {
-        await Promise.all(summaries.filter((item) => item.provider === "docker" && !item.stale).map(async (summary) => {
+        await Promise.all(summaries.filter((item) => !item.stale).map(async (summary) => {
           const key = scopeKey(summary);
           if (state.fullSnapshots.has(key)) return;
           const query = new URLSearchParams({
@@ -268,15 +282,18 @@
 
       function renderSummaries() {
         const needle = document.querySelector("#search").value.trim().toLowerCase();
-        const provider = document.querySelector("#provider").value;
+        const provider = state.providerView;
+        const selectedProvider = document.querySelector("#provider").value;
         const showStale = document.querySelector("#show-stale").checked;
         const visible = state.summaries.filter((snapshot) => {
-          return (showStale || !snapshot.stale) && (!provider || snapshot.provider === provider) && snapshotMatchesNeedle(snapshot, needle);
+          return (showStale || !snapshot.stale) && snapshot.provider === provider && (!selectedProvider || snapshot.provider === selectedProvider) && snapshotMatchesNeedle(snapshot, needle);
         }).sort((a, b) => Number(a.stale) - Number(b.stale) || Date.parse(b.received_at) - Date.parse(a.received_at));
         const container = document.querySelector("#snapshots");
-        const dockerSnapshots = visible.map((summary) => state.fullSnapshots.get(scopeKey(summary))).filter(Boolean);
-        const other = visible.filter((summary) => summary.provider !== "docker");
+        const fullSnapshots = visible.map((summary) => state.fullSnapshots.get(scopeKey(summary))).filter(Boolean);
+        const dockerSnapshots = state.providerView === "docker" ? fullSnapshots : [];
         const overview = document.querySelector("#overview");
+        document.querySelector(".secondary-nav").classList.toggle("hidden", state.providerView !== "docker");
+        document.querySelector(".toolbar").classList.toggle("hidden", state.providerView !== "docker");
         if (dockerSnapshots.length && (state.view === "overview" || state.view === "containers")) {
           overview.className = "overview pulse-overview";
           overview.replaceChildren(dockerHostsTable(dockerSnapshots));
@@ -288,13 +305,70 @@
         }
         container.replaceChildren();
         if (dockerSnapshots.length) container.append(dockerPulseWorkspace(dockerSnapshots, needle));
-        if (other.length) container.append(...other.map(snapshotCard));
+        if (state.providerView === "proxmox" && fullSnapshots.length) container.append(proxmoxWorkspace(fullSnapshots));
+        if (state.providerView === "windows_wsl" && fullSnapshots.length) container.append(wslWorkspace(fullSnapshots));
+        if (state.providerView === "slurm" && fullSnapshots.length) container.append(slurmWorkspace(fullSnapshots));
         if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
         const resourceCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources?.length || 0), 0);
         document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
         const containerCount = countVisibleContainers(dockerSnapshots, needle);
         document.querySelector("#visible-count").textContent = `${containerCount} containers`;
       }
+
+      function proxmoxWorkspace(snapshots) {
+        const nodes = []; const guests = [];
+        for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
+          const attrs = resource.attributes || {};
+          if (resource.type === "proxmox.node") nodes.push([
+            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.os || "Proxmox VE"), textCell(attrs.version || "—"),
+            textCell(attrs.cpu_model || "—"), numberCell(attrs.cpu_sockets ?? "—"), numberCell(attrs.cpu_cores ?? "—"), statusCell(resource.status), resourceDetailCell(resource)
+          ]);
+          if (resource.type === "proxmox.qemu" || resource.type === "proxmox.lxc") guests.push([
+            statusNameCell(resource.name || resource.id, resource.status), textCell(resource.type === "proxmox.qemu" ? "VM" : "LXC"),
+            textCell(attrs.node || "—"), numberCell(attrs.vmid ?? "—"), textCell(attrs.os || "—", attrs.architecture || ""),
+            percentCell(resource.metrics?.["cpu.ratio"]), bytesCell(resource.metrics?.["memory.used_bytes"], attrs.max_memory_bytes),
+            statusCell(resource.status), resourceDetailCell(resource)
+          ]);
+        }
+        const root = element("div", "pulse-workspace");
+        root.append(pulseTablePanel("Proxmox Nodes", nodes.length, ["Node", "System", "Version", "CPU", "Sockets", "Cores", "State", "Details"], nodes, "proxmox-nodes"));
+        root.append(pulseTablePanel("VM & LXC", guests.length, ["Guest", "Type", "Node", "VMID", "System", "CPU", "Memory", "State", "Details"], guests, "proxmox-guests"));
+        return root;
+      }
+
+      function wslWorkspace(snapshots) {
+        const rows = [];
+        for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
+          if (resource.type !== "windows.wsl") continue; const attrs = resource.attributes || {};
+          rows.push([statusNameCell(resource.name || resource.id, resource.status), textCell(`WSL ${attrs.wsl_version || "—"}`),
+            statusCell(resource.status), textCell(attrs.distribution_guid || resource.id), numberCell(attrs.default_uid ?? "—"), resourceDetailCell(resource)]);
+        }
+        return pulseTablePanel("WSL Distributions", rows.length, ["Distribution", "Version", "State", "Stable GUID", "Default UID", "Details"], rows, "wsl-distributions");
+      }
+
+      function slurmWorkspace(snapshots) {
+        const clusters = []; const partitions = []; const jobs = [];
+        for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
+          const attrs = resource.attributes || {}; const metrics = resource.metrics || {};
+          if (resource.type === "slurm.cluster") clusters.push([statusNameCell(resource.name || resource.id, resource.status), statusCell(resource.status),
+            textCell(attrs.controller_up ? "active" : "inactive"), textCell(attrs.node_daemon_up ? "active" : "inactive"),
+            numberCell(metrics["jobs.running"] ?? 0), numberCell(metrics["jobs.pending"] ?? 0),
+            textCell(`${metrics["gpus.allocated"] ?? 0} / ${metrics["gpus.configured"] ?? 0}`), resourceDetailCell(resource)]);
+          if (resource.type === "slurm.partition") partitions.push([statusNameCell(resource.name || resource.id, resource.status),
+            textCell(attrs.availability || "—"), numberCell(attrs.nodes ?? 0), textCell(attrs.cpu_allocation || "—"), textCell(attrs.gres || "—"), statusCell(resource.status), resourceDetailCell(resource)]);
+          if (resource.type === "slurm.job") jobs.push([statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.user || "—"),
+            textCell(attrs.partition || "—"), statusCell(resource.status), textCell(attrs.elapsed || "—"), numberCell(attrs.nodes ?? 0), textCell(attrs.gres || "—"), textCell(attrs.reason || "—"), resourceDetailCell(resource)]);
+        }
+        const root = element("div", "pulse-workspace");
+        root.append(pulseTablePanel("Slurm Cluster", clusters.length, ["Cluster", "State", "Controller", "Node daemon", "Running", "Pending", "GPUs", "Details"], clusters, "slurm-cluster"));
+        root.append(pulseTablePanel("Partitions", partitions.length, ["Partition", "Availability", "Nodes", "CPU allocation", "GRES", "State", "Details"], partitions, "slurm-partitions"));
+        root.append(pulseTablePanel("Jobs", jobs.length, ["Job", "User", "Partition", "State", "Elapsed", "Nodes", "GRES", "Reason", "Details"], jobs, "slurm-jobs"));
+        return root;
+      }
+
+      function percentCell(value) { return textCell(Number.isFinite(Number(value)) ? `${Math.round(Number(value) * 100)}%` : "—"); }
+      function bytesCell(used, total) { return textCell(formatBytes(Number(used)), Number(total) > 0 ? `/ ${formatBytes(Number(total))}` : ""); }
+      function formatBytes(value) { if (!Number.isFinite(value) || value < 0) return "—"; const units = ["B", "KiB", "MiB", "GiB", "TiB"]; let index = 0; while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; } return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`; }
 
       function snapshotMatchesNeedle(summary, needle) {
         if (!needle) return true;

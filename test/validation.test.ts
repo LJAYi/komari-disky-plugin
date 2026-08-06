@@ -52,4 +52,18 @@ describe("parseSnapshotInput", () => {
       }],
     }))).toThrow(/target does not exist/);
   });
+
+  it.each([
+    ["proxmox", "proxmox.node"],
+    ["windows_wsl", "windows.wsl"],
+    ["slurm", "slurm.cluster"],
+  ])("accepts migrated %s provider resources", (provider, resourceType) => {
+    const snapshot = validSnapshot({
+      provider,
+      capabilities: [resourceType],
+      resources: [{ id: `${resourceType}:fixture`, type: resourceType, name: "fixture", status: "running" }],
+      relationships: [],
+    });
+    expect(parseSnapshotInput(snapshot).resources[0].type).toBe(resourceType);
+  });
 });
