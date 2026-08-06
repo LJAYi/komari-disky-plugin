@@ -271,10 +271,7 @@
         const provider = document.querySelector("#provider").value;
         const showStale = document.querySelector("#show-stale").checked;
         const visible = state.summaries.filter((snapshot) => {
-          const clientName = state.clientNames.get(snapshot.source_client_uuid) || "";
-          const text = [clientName, snapshot.source_client_uuid, snapshot.provider, snapshot.provider_instance,
-            ...Object.keys(snapshot.resource_types || {})].join(" ").toLowerCase();
-          return (showStale || !snapshot.stale) && (!provider || snapshot.provider === provider) && (!needle || text.includes(needle));
+          return (showStale || !snapshot.stale) && (!provider || snapshot.provider === provider) && snapshotMatchesNeedle(snapshot, needle);
         }).sort((a, b) => Number(a.stale) - Number(b.stale) || Date.parse(b.received_at) - Date.parse(a.received_at));
         const container = document.querySelector("#snapshots");
         const dockerSnapshots = visible.map((summary) => state.fullSnapshots.get(scopeKey(summary))).filter(Boolean);
@@ -297,6 +294,17 @@
         document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
         const containerCount = countVisibleContainers(dockerSnapshots, needle);
         document.querySelector("#visible-count").textContent = `${containerCount} containers`;
+      }
+
+      function snapshotMatchesNeedle(summary, needle) {
+        if (!needle) return true;
+        const clientName = state.clientNames.get(summary.source_client_uuid) || "";
+        const base = [clientName, summary.source_client_uuid, summary.provider, summary.provider_instance,
+          ...Object.keys(summary.resource_types || {})].join(" ").toLowerCase();
+        if (base.includes(needle)) return true;
+        const snapshot = state.fullSnapshots.get(scopeKey(summary));
+        return (snapshot?.resources || []).some((resource) => [resource.id, resource.name, resource.type, resource.status,
+          ...Object.values(resource.labels || {}), ...Object.values(resource.attributes || {})].join(" ").toLowerCase().includes(needle));
       }
 
       function countVisibleContainers(snapshots, needle) {
