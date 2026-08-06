@@ -96,9 +96,7 @@
     <header class="app-header">
       <div class="brand"><span class="brand-mark"></span><strong>Disky</strong></div>
       <nav class="primary-nav" aria-label="资源类型">
-        <button class="active" type="button" data-disky-view="overview">Docker</button>
-        <button type="button" data-disky-view="compose">Compose</button>
-        <button type="button" data-disky-view="swarm">Swarm</button>
+        <button class="active" type="button" aria-current="page">Docker</button>
       </nav>
       <div class="app-actions"><span class="connection-status">Connected</span><button id="header-refresh" type="button">刷新</button></div>
     </header>
@@ -119,9 +117,22 @@
         </div>
         <div class="toolbar">
           <input id="search" type="search" placeholder="搜索容器、镜像、项目、服务或主机" aria-label="搜索资源">
-          <select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select>
-          <label class="check"><input id="show-stale" type="checkbox">显示已过期</label>
-          <button id="refresh" type="button">刷新</button>
+          <div class="toolbar-row">
+            <div class="status-filter" role="group" aria-label="状态筛选">
+              <button class="active" type="button" data-status-filter="all">All</button>
+              <button type="button" data-status-filter="running"><span class="filter-dot good"></span>Running</button>
+              <button type="button" data-status-filter="degraded"><span class="filter-dot warn"></span>Degraded</button>
+              <button type="button" data-status-filter="stopped"><span class="filter-dot bad"></span>Stopped</button>
+            </div>
+            <label class="filter-select"><span>FILTER</span><select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select></label>
+            <label class="check"><input id="show-stale" type="checkbox">显示已过期</label>
+            <div class="view-toggle" role="group" aria-label="容器排列方式">
+              <button class="active" id="grouped" type="button">Grouped</button>
+              <button id="list" type="button">List</button>
+            </div>
+            <span id="visible-count" class="toolbar-count">0 containers</span>
+            <button id="refresh" type="button">刷新</button>
+          </div>
         </div>
         <div id="snapshots"></div>
         <button id="more" class="hidden" type="button">加载更多</button>
@@ -154,7 +165,7 @@
       const state = {
         summaries: [], offset: 0, total: 0, loading: false,
         clientNames: new Map(), clients: new Map(), expanded: new Map(),
-        fullSnapshots: new Map(), view: "overview"
+        fullSnapshots: new Map(), view: "overview", statusFilter: "all", grouped: true
       };
       const overviewLabels = {
         clients: "设备", providers: "Provider", snapshots: "快照",
@@ -169,6 +180,13 @@
       document.querySelector("#refresh").addEventListener("click", () => refreshAll());
       document.querySelector("#header-refresh").addEventListener("click", () => refreshAll());
       document.querySelector("#more").addEventListener("click", () => loadSummaries(false));
+      document.querySelectorAll("[data-status-filter]").forEach((button) => button.addEventListener("click", () => {
+        state.statusFilter = button.dataset.statusFilter;
+        document.querySelectorAll("[data-status-filter]").forEach((item) => item.classList.toggle("active", item === button));
+        renderSummaries();
+      }));
+      document.querySelector("#grouped").addEventListener("click", () => { state.grouped = true; syncGroupingButtons(); renderSummaries(); });
+      document.querySelector("#list").addEventListener("click", () => { state.grouped = false; syncGroupingButtons(); renderSummaries(); });
       document.querySelectorAll("[data-disky-view]").forEach((button) => button.addEventListener("click", () => {
         state.view = button.dataset.diskyView;
         document.querySelectorAll("[data-disky-view]").forEach((item) => item.classList.toggle("active", item.dataset.diskyView === state.view));
@@ -277,6 +295,8 @@
         if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
         const resourceCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources?.length || 0), 0);
         document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
+        const containerCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources || []).filter((item) => item.type === "docker.container" && matchesStatusFilter(item.status)).length, 0);
+        document.querySelector("#visible-count").textContent = `${containerCount} containers`;
       }
 
       function dockerPulseWorkspace(snapshots, needle) {
@@ -304,7 +324,7 @@
           const nodes = resources.filter((item) => item.type === "docker.swarm.node");
           const services = resources.filter((item) => item.type === "docker.swarm.service").length;
           return [
-            statusNameCell(state.clientNames.get(snapshot.source_client_uuid) || engine.name || snapshot.source_client_uuid, engine.status),
+            hostNameCell(state.clientNames.get(snapshot.source_client_uuid) || engine.name || snapshot.source_client_uuid, engine.status),
             textCell(attrs.operating_system || client.os || "—", attrs.architecture || client.arch || ""),
             textCell(attrs.server_version || "—"),
             numberCell(containers), numberCell(projects),
@@ -327,7 +347,7 @@
             const compose = context.compose.get(resource.id);
             const swarm = context.swarm.get(resource.id);
             const text = [resource.name, attrs.image, resource.status, host, compose?.project, compose?.service, swarm?.service].join(" ").toLowerCase();
-            if (needle && !text.includes(needle)) return null;
+            if ((needle && !text.includes(needle)) || !matchesStatusFilter(resource.status)) return null;
             const orchestration = compose ? `${compose.project} / ${compose.service}` : swarm ? `Swarm / ${swarm.service}` : "Standalone";
             return [
               statusNameCell(resource.name || resource.id, resource.status),
@@ -338,8 +358,9 @@
           }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
           if (rows.length) groups.push({ host, rows });
         }
-        return groupedTablePanel("Containers", groups.reduce((sum, group) => sum + group.rows.length, 0),
-          ["Container", "Host", "Image", "State", "Orchestration", "Docker status", "Created", "Details"], groups);
+        const headers = ["Container", "Host", "Image", "State", "Orchestration", "Docker status", "Created", "Details"];
+        const count = groups.reduce((sum, group) => sum + group.rows.length, 0);
+        return state.grouped ? groupedTablePanel("Containers", count, headers, groups) : pulseTablePanel("Containers", count, headers, groups.flatMap((group) => group.rows), "containers");
       }
 
       function composeTable(snapshots, needle) {
@@ -353,7 +374,7 @@
             const services = relatedTargets(project.id, outgoing, byID, "contains", "docker.compose.service");
             const containers = services.flatMap((service) => relatedTargets(service.id, outgoing, byID, "instance", "docker.container"));
             const text = [project.name, host, ...services.map((item) => item.name)].join(" ").toLowerCase();
-            if (needle && !text.includes(needle)) return null;
+            if ((needle && !text.includes(needle)) || !matchesStatusFilter(project.status)) return null;
             return [statusNameCell(project.name || project.id, project.status), textCell(host), numberCell(services.length),
               numberCell(containers.length), statusCell(project.status), textCell(services.map((item) => item.name).join(", ") || "—"), resourceDetailCell(project)];
           }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
@@ -372,7 +393,7 @@
           for (const node of resources.filter((item) => item.type === "docker.swarm.node")) {
             const attrs = node.attributes || {};
             const text = [node.name, host, node.status, attrs.role, attrs.address].join(" ").toLowerCase();
-            if (!needle || text.includes(needle)) nodeRows.push([
+            if ((!needle || text.includes(needle)) && matchesStatusFilter(node.status)) nodeRows.push([
               statusNameCell(node.name || node.id, node.status), textCell(host), textCell(attrs.role || (attrs.manager ? "manager" : "worker")),
               textCell(attrs.availability || "—"), textCell(attrs.engine_version || "—"), textCell(attrs.address || "—"), statusCell(node.status), resourceDetailCell(node)
             ]);
@@ -380,7 +401,7 @@
           const rows = resources.filter((item) => item.type === "docker.swarm.service").map((service) => {
             const attrs = service.attributes || {}; const metrics = service.metrics || {};
             const text = [service.name, host, service.status, attrs.image, attrs.mode].join(" ").toLowerCase();
-            if (needle && !text.includes(needle)) return null;
+            if ((needle && !text.includes(needle)) || !matchesStatusFilter(service.status)) return null;
             const tasks = Number.isFinite(metrics["tasks.running"]) ? `${metrics["tasks.running"]} / ${metrics["tasks.desired"] ?? "—"}` : "—";
             return [statusNameCell(service.name || service.id, service.status), textCell(host), textCell(shortImage(attrs.image || "—")),
               textCell(attrs.mode || "—"), textCell(tasks), statusCell(service.status), resourceDetailCell(service)];
@@ -451,6 +472,13 @@
 
       function numberCell(value) { const td = textCell(value); td.classList.add("number-cell"); return td; }
 
+      function hostNameCell(name, status) {
+        const td = statusNameCell(name, status);
+        const chevron = element("span", "row-chevron"); chevron.textContent = "›";
+        td.querySelector(".name-cell").prepend(chevron);
+        return td;
+      }
+
       function statusNameCell(name, status) {
         const td = document.createElement("td"); const wrap = element("div", "name-cell");
         const dot = element("span", `status-dot ${statusKind(status)}`); const strong = document.createElement("strong"); strong.textContent = name;
@@ -458,6 +486,17 @@
       }
 
       function statusCell(status) { const td = document.createElement("td"); td.append(statusElement(status)); return td; }
+
+      function matchesStatusFilter(status) {
+        if (state.statusFilter === "all") return true;
+        const kind = statusKind(status);
+        return state.statusFilter === "running" ? kind === "good" : state.statusFilter === "degraded" ? kind === "warn" : kind === "bad";
+      }
+
+      function syncGroupingButtons() {
+        document.querySelector("#grouped").classList.toggle("active", state.grouped);
+        document.querySelector("#list").classList.toggle("active", !state.grouped);
+      }
 
       function resourceDetailCell(resource) {
         const td = document.createElement("td"); const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "View";
