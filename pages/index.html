@@ -202,7 +202,11 @@
           const active = item === button; item.classList.toggle("active", active);
           if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
         });
-        try { await preloadSnapshots(state.summaries.filter((item) => item.provider === state.providerView && !item.stale)); }
+        try {
+          const selected = state.summaries.filter((item) => item.provider === state.providerView && !item.stale);
+          await preloadSnapshots(selected);
+          await preloadParentSnapshots(selected.map((item) => state.fullSnapshots.get(scopeKey(item))).filter(Boolean));
+        }
         catch (error) { showError(error); }
         renderSummaries();
       }));
@@ -230,14 +234,16 @@
       async function loadSummaries(reset) {
         if (state.loading) return;
         state.loading = true;
-        if (reset) { state.offset = 0; state.summaries = []; state.expanded.clear(); }
+        if (reset) { state.offset = 0; state.summaries = []; state.expanded.clear(); state.fullSnapshots.clear(); }
         try {
           const query = new URLSearchParams({ view: "summary", offset: String(state.offset), limit: "100" });
           const result = await requestJSON(`/api/disky/v1/snapshots?${query}`);
           state.summaries.push(...result.data);
           state.offset += result.data.length;
           state.total = result.pagination.total;
-          await preloadSnapshots(result.data.filter((item) => item.provider === state.providerView));
+          const selected = result.data.filter((item) => item.provider === state.providerView);
+          await preloadSnapshots(selected);
+          await preloadParentSnapshots(selected.map((item) => state.fullSnapshots.get(scopeKey(item))).filter(Boolean));
           document.querySelector("#resources").classList.remove("hidden");
           document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
           updateProviders();
@@ -266,6 +272,16 @@
             if (error.status !== 401 && error.status !== 403) throw error;
           }
         }));
+      }
+
+      async function preloadParentSnapshots(snapshots) {
+        const wanted = new Set();
+        for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
+          const attrs = resource.attributes || {};
+          if (!attrs.parent_provider || !attrs.parent_provider_instance || !attrs.parent_resource_id) continue;
+          wanted.add(`${snapshot.source_client_uuid}\u0000${attrs.parent_provider}\u0000${attrs.parent_provider_instance}`);
+        }
+        await preloadSnapshots(state.summaries.filter((summary) => wanted.has(scopeKey(summary))));
       }
 
       function scopeKey(snapshot) {
@@ -341,9 +357,10 @@
         for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
           if (resource.type !== "windows.wsl") continue; const attrs = resource.attributes || {};
           rows.push([statusNameCell(resource.name || resource.id, resource.status), textCell(`WSL ${attrs.wsl_version || "—"}`),
-            statusCell(resource.status), textCell(attrs.distribution_guid || resource.id), numberCell(attrs.default_uid ?? "—"), resourceDetailCell(resource)]);
+            textCell(externalParentLabel(snapshot, resource)), statusCell(resource.status), textCell(attrs.distribution_guid || resource.id),
+            numberCell(attrs.default_uid ?? "—"), resourceDetailCell(resource)]);
         }
-        return pulseTablePanel("WSL Distributions", rows.length, ["Distribution", "Version", "State", "Stable GUID", "Default UID", "Details"], rows, "wsl-distributions");
+        return pulseTablePanel("WSL Distributions", rows.length, ["Distribution", "Version", "Parent", "State", "Stable GUID", "Default UID", "Details"], rows, "wsl-distributions");
       }
 
       function slurmWorkspace(snapshots) {
@@ -351,6 +368,7 @@
         for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
           const attrs = resource.attributes || {}; const metrics = resource.metrics || {};
           if (resource.type === "slurm.cluster") clusters.push([statusNameCell(resource.name || resource.id, resource.status), statusCell(resource.status),
+            textCell(externalParentLabel(snapshot, resource)),
             textCell(attrs.controller_up ? "active" : "inactive"), textCell(attrs.node_daemon_up ? "active" : "inactive"),
             numberCell(metrics["jobs.running"] ?? 0), numberCell(metrics["jobs.pending"] ?? 0),
             textCell(`${metrics["gpus.allocated"] ?? 0} / ${metrics["gpus.configured"] ?? 0}`), resourceDetailCell(resource)]);
@@ -360,10 +378,18 @@
             textCell(attrs.partition || "—"), statusCell(resource.status), textCell(attrs.elapsed || "—"), numberCell(attrs.nodes ?? 0), textCell(attrs.gres || "—"), textCell(attrs.reason || "—"), resourceDetailCell(resource)]);
         }
         const root = element("div", "pulse-workspace");
-        root.append(pulseTablePanel("Slurm Cluster", clusters.length, ["Cluster", "State", "Controller", "Node daemon", "Running", "Pending", "GPUs", "Details"], clusters, "slurm-cluster"));
+        root.append(pulseTablePanel("Slurm Cluster", clusters.length, ["Cluster", "State", "Parent", "Controller", "Node daemon", "Running", "Pending", "GPUs", "Details"], clusters, "slurm-cluster"));
         root.append(pulseTablePanel("Partitions", partitions.length, ["Partition", "Availability", "Nodes", "CPU allocation", "GRES", "State", "Details"], partitions, "slurm-partitions"));
         root.append(pulseTablePanel("Jobs", jobs.length, ["Job", "User", "Partition", "State", "Elapsed", "Nodes", "GRES", "Reason", "Details"], jobs, "slurm-jobs"));
         return root;
+      }
+
+      function externalParentLabel(snapshot, resource) {
+        const attrs = resource.attributes || {};
+        if (!attrs.parent_provider || !attrs.parent_provider_instance || !attrs.parent_resource_id) return "—";
+        const key = `${snapshot.source_client_uuid}\u0000${attrs.parent_provider}\u0000${attrs.parent_provider_instance}`;
+        const parent = (state.fullSnapshots.get(key)?.resources || []).find((item) => item.id === attrs.parent_resource_id);
+        return parent?.name || parent?.id || String(attrs.parent_resource_id);
       }
 
       function percentCell(value) { return textCell(Number.isFinite(Number(value)) ? `${Math.round(Number(value) * 100)}%` : "—"); }
