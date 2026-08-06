@@ -5,50 +5,104 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Komari Disky</title>
     <style>
-      :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
-      body { margin: 0; padding: 24px; background: #0f1115; color: #eef1f5; }
-      main { max-width: 1120px; margin: auto; }
-      h1 { font-size: 24px; margin: 0 0 6px; }
-      h2 { font-size: 18px; margin: 28px 0 12px; }
-      p { color: #a9b1bd; margin: 0 0 20px; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
-      .metric, .snapshot { border: 1px solid #2b313b; background: #171a20; border-radius: 12px; padding: 16px; }
-      .metric strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
-      .muted, .metric span { color: #a9b1bd; }
-      .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
-      input, button { border: 1px solid #343b47; background: #171a20; color: inherit; border-radius: 8px; padding: 9px 12px; }
-      input { flex: 1; min-width: 0; }
+      :root {
+        color-scheme: light dark;
+        font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #0b0d11;
+        --surface: #13171d;
+        --surface-2: #191e26;
+        --line: #2a313c;
+        --text: #eef2f7;
+        --muted: #99a4b3;
+        --accent: #76a9ff;
+        --good: #67d391;
+        --warn: #f2c46d;
+        --bad: #ff8585;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); }
+      main { max-width: 1240px; margin: auto; }
+      h1 { font-size: 26px; margin: 0; letter-spacing: -.02em; }
+      h2 { font-size: 18px; margin: 30px 0 12px; }
+      h3 { font-size: 15px; margin: 0; }
+      p { color: var(--muted); margin: 5px 0 20px; }
+      button, input, select {
+        border: 1px solid var(--line); background: var(--surface); color: inherit;
+        border-radius: 9px; padding: 9px 12px; font: inherit;
+      }
       button { cursor: pointer; }
-      button:hover { border-color: #6f7d91; }
-      .snapshot { margin-bottom: 10px; }
-      .snapshot-head { display: flex; gap: 10px; align-items: start; justify-content: space-between; }
-      .snapshot-title { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
-      .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-      .badge { background: #252b35; border-radius: 999px; padding: 2px 8px; color: #c5ccd6; }
-      .stale { color: #ffb5b5; background: #47282b; }
+      button:hover { border-color: #657286; }
+      button:disabled { cursor: wait; opacity: .65; }
+      input[type="search"] { min-width: 240px; flex: 1; }
+      .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+      .metric, .snapshot, .panel, .resource-row {
+        border: 1px solid var(--line); background: var(--surface); border-radius: 12px;
+      }
+      .metric { padding: 14px; }
+      .metric strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+      .metric span, .muted { color: var(--muted); }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-bottom: 12px; }
+      .check { display: inline-flex; gap: 7px; align-items: center; color: var(--muted); padding: 0 4px; }
+      .check input { accent-color: var(--accent); }
+      .snapshot { margin-bottom: 10px; padding: 16px; }
+      .snapshot-head { display: flex; gap: 12px; align-items: start; justify-content: space-between; }
+      .snapshot-title { font-size: 17px; font-weight: 680; overflow-wrap: anywhere; }
+      .snapshot-subtitle { color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+      .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+      .badge { background: #242b35; border-radius: 999px; padding: 2px 8px; color: #cbd3dd; white-space: nowrap; }
+      .badge.good { color: #a7e9bf; background: #173424; }
+      .badge.warn { color: #f8db9e; background: #3d321b; }
+      .badge.bad, .badge.stale { color: #ffb3b3; background: #432326; }
       .types { overflow-wrap: anywhere; }
-      .details { margin-top: 14px; border-top: 1px solid #2b313b; padding-top: 12px; overflow-x: auto; }
+      .details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+      .detail-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 8px; margin-bottom: 14px; }
+      .detail-summary .metric { background: var(--surface-2); }
+      .section { margin-top: 18px; }
+      .section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .section-title span { color: var(--muted); }
+      .panel { padding: 12px; margin-bottom: 9px; background: var(--surface-2); }
+      .panel-head, .resource-main { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+      .panel-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; color: var(--muted); }
+      .tree { margin: 9px 0 0 12px; padding-left: 13px; border-left: 1px solid #354052; }
+      .resource-row { margin: 7px 0; padding: 9px 11px; background: #151a21; }
+      .resource-name { font-weight: 620; overflow-wrap: anywhere; }
+      .resource-type { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .status { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+      .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+      .status.good::before { background: var(--good); }
+      .status.warn::before { background: var(--warn); }
+      .status.bad::before { background: var(--bad); }
+      .empty { padding: 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); }
+      details.raw { margin-top: 18px; }
+      details.raw > summary, .resource-extra > summary { color: var(--muted); cursor: pointer; }
+      .table-wrap { overflow-x: auto; margin-top: 8px; }
       table { width: 100%; border-collapse: collapse; min-width: 760px; }
       th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #282e37; }
-      th { color: #a9b1bd; font-weight: 500; }
+      th { color: var(--muted); font-weight: 500; }
       td { overflow-wrap: anywhere; }
-      pre { max-width: 460px; max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 5px 0; color: #bbc4d0; }
+      pre { max-width: 480px; max-height: 240px; overflow: auto; white-space: pre-wrap; margin: 5px 0; color: #bbc4d0; }
       footer { margin-top: 18px; color: #7f8997; font-size: 13px; }
-      .error { color: #ff8f8f; }
-      .hidden { display: none; }
-      @media (max-width: 640px) { body { padding: 16px; } .snapshot-head { display: block; } }
+      .error { color: var(--bad); }
+      .hidden { display: none !important; }
+      @media (max-width: 680px) {
+        body { padding: 16px; }
+        .snapshot-head, .panel-head, .resource-main { align-items: stretch; flex-direction: column; }
+        input[type="search"] { min-width: 100%; }
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Komari Disky</h1>
-      <p>设备侧 Provider 最近提交的资源快照概览。管理员可以展开查看通用资源与拓扑数据。</p>
-      <section class="grid" id="overview" aria-live="polite"></section>
+      <p>独立展示设备侧 Provider 提交的资源、编排关系与运行状态。</p>
+      <section class="overview" id="overview" aria-live="polite"></section>
 
       <section id="resources" class="hidden">
-        <h2>资源快照</h2>
+        <h2>设备与工作负载</h2>
         <div class="toolbar">
-          <input id="search" type="search" placeholder="筛选设备、Provider、实例或资源类型" aria-label="筛选资源快照">
+          <input id="search" type="search" placeholder="搜索设备、项目、服务或资源类型" aria-label="搜索资源">
+          <select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select>
+          <label class="check"><input id="show-stale" type="checkbox">显示已过期</label>
           <button id="refresh" type="button">刷新</button>
         </div>
         <div id="snapshots"></div>
@@ -58,37 +112,47 @@
       <footer id="updated">正在读取…</footer>
     </main>
     <script>
-      const state = { summaries: [], offset: 0, total: 0, loading: false };
-      const labels = {
+      const state = {
+        summaries: [], offset: 0, total: 0, loading: false,
+        clientNames: new Map(), expanded: new Map()
+      };
+      const overviewLabels = {
         clients: "设备", providers: "Provider", snapshots: "快照",
         resources: "资源", relationships: "关系", stale: "已过期"
       };
+      const goodStatuses = new Set(["running", "active", "ready", "complete", "completed", "allocated"]);
+      const warningStatuses = new Set(["paused", "pending", "preparing", "starting", "new", "unknown"]);
 
       document.querySelector("#search").addEventListener("input", renderSummaries);
-      document.querySelector("#refresh").addEventListener("click", () => loadSummaries(true));
+      document.querySelector("#provider").addEventListener("change", renderSummaries);
+      document.querySelector("#show-stale").addEventListener("change", renderSummaries);
+      document.querySelector("#refresh").addEventListener("click", () => refreshAll());
       document.querySelector("#more").addEventListener("click", () => loadSummaries(false));
 
-      Promise.all([loadOverview(), loadSummaries(true)]).catch(showError);
+      refreshAll().catch(showError);
+
+      async function refreshAll() {
+        await Promise.all([loadOverview(), loadNodes()]);
+        await loadSummaries(true);
+      }
 
       async function loadOverview() {
         const { data } = await requestJSON("/api/disky/v1/overview");
         const container = document.querySelector("#overview");
-        container.replaceChildren(...Object.entries(labels).map(([key, label]) => {
-          const card = element("article", "metric");
-          const value = element("strong");
-          value.textContent = String(Number(data[key] || 0));
-          const caption = element("span");
-          caption.textContent = label;
-          card.append(value, caption);
-          return card;
-        }));
+        container.replaceChildren(...Object.entries(overviewLabels).map(([key, label]) => metricCard(data[key] || 0, label)));
         document.querySelector("#updated").textContent = `更新时间：${formatTime(data.generated_at)}`;
+      }
+
+      async function loadNodes() {
+        const result = await requestJSON("/api/nodes");
+        const nodes = Array.isArray(result.data) ? result.data : [];
+        state.clientNames = new Map(nodes.map((node) => [node.uuid, node.name || node.uuid]));
       }
 
       async function loadSummaries(reset) {
         if (state.loading) return;
         state.loading = true;
-        if (reset) { state.offset = 0; state.summaries = []; }
+        if (reset) { state.offset = 0; state.summaries = []; state.expanded.clear(); }
         try {
           const query = new URLSearchParams({ view: "summary", offset: String(state.offset), limit: "100" });
           const result = await requestJSON(`/api/disky/v1/snapshots?${query}`);
@@ -97,30 +161,38 @@
           state.total = result.pagination.total;
           document.querySelector("#resources").classList.remove("hidden");
           document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
+          updateProviders();
           renderSummaries();
         } catch (error) {
           if (error.status !== 401 && error.status !== 403) throw error;
-          // Public visitors retain the aggregate overview without receiving
-          // client UUIDs, topology, labels, or provider-specific attributes.
+          // Public visitors only receive aggregate counts. Full resource and
+          // identity data remains restricted to an authenticated administrator.
         } finally {
           state.loading = false;
         }
       }
 
+      function updateProviders() {
+        const select = document.querySelector("#provider");
+        const selected = select.value;
+        const providers = [...new Set(state.summaries.map((item) => item.provider))].sort();
+        select.replaceChildren(option("", "全部 Provider"), ...providers.map((value) => option(value, value)));
+        if (providers.includes(selected)) select.value = selected;
+      }
+
       function renderSummaries() {
         const needle = document.querySelector("#search").value.trim().toLowerCase();
+        const provider = document.querySelector("#provider").value;
+        const showStale = document.querySelector("#show-stale").checked;
         const visible = state.summaries.filter((snapshot) => {
-          const text = [snapshot.source_client_uuid, snapshot.provider, snapshot.provider_instance,
+          const clientName = state.clientNames.get(snapshot.source_client_uuid) || "";
+          const text = [clientName, snapshot.source_client_uuid, snapshot.provider, snapshot.provider_instance,
             ...Object.keys(snapshot.resource_types || {})].join(" ").toLowerCase();
-          return !needle || text.includes(needle);
-        });
+          return (showStale || !snapshot.stale) && (!provider || snapshot.provider === provider) && (!needle || text.includes(needle));
+        }).sort((a, b) => Number(a.stale) - Number(b.stale) || Date.parse(b.received_at) - Date.parse(a.received_at));
         const container = document.querySelector("#snapshots");
         container.replaceChildren(...visible.map(snapshotCard));
-        if (visible.length === 0) {
-          const empty = element("p", "muted");
-          empty.textContent = state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。";
-          container.append(empty);
-        }
+        if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
       }
 
       function snapshotCard(snapshot) {
@@ -128,57 +200,199 @@
         const head = element("div", "snapshot-head");
         const identity = element("div");
         const title = element("div", "snapshot-title");
-        title.textContent = `${snapshot.provider} / ${snapshot.provider_instance}`;
-        const client = element("div", "muted");
-        client.textContent = snapshot.source_client_uuid;
-        identity.append(title, client);
+        title.textContent = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+        const subtitle = element("div", "snapshot-subtitle");
+        subtitle.textContent = `${snapshot.provider} / ${snapshot.provider_instance}`;
+        identity.append(title, subtitle);
         const button = element("button");
         button.type = "button";
-        button.textContent = "展开资源";
+        button.textContent = "查看工作负载";
         button.addEventListener("click", () => toggleDetails(card, button, snapshot));
         head.append(identity, button);
 
         const badges = element("div", "badges");
         badges.append(badge(`${snapshot.resource_count} 资源`), badge(`${snapshot.relationship_count} 关系`));
-        if (snapshot.stale) badges.append(badge("stale", true));
+        if (snapshot.stale) badges.append(badge("已过期", "stale"));
+        else badges.append(badge(`更新于 ${formatRelative(snapshot.received_at)}`, "good"));
         const types = element("div", "muted types");
         const entries = Object.entries(snapshot.resource_types || {}).sort(([a], [b]) => a.localeCompare(b));
-        types.textContent = entries.length
-          ? entries.map(([type, count]) => `${type} × ${count}`).join(" · ")
-          : "无资源类型";
+        types.textContent = entries.length ? entries.map(([type, count]) => `${friendlyType(type)} × ${count}`).join(" · ") : "无资源类型";
         card.append(head, badges, types);
         return card;
       }
 
       async function toggleDetails(card, button, summary) {
         const existing = card.querySelector(".details");
-        if (existing) {
-          existing.remove();
-          button.textContent = "展开资源";
-          return;
-        }
+        if (existing) { existing.remove(); button.textContent = "查看工作负载"; return; }
         button.disabled = true;
         button.textContent = "读取中…";
         try {
           const query = new URLSearchParams({
-            view: "full",
-            client_uuid: summary.source_client_uuid,
-            provider: summary.provider,
-            provider_instance: summary.provider_instance
+            view: "full", client_uuid: summary.source_client_uuid,
+            provider: summary.provider, provider_instance: summary.provider_instance
           });
           const { data } = await requestJSON(`/api/disky/v1/snapshots?${query}`);
-          card.append(snapshotDetails(data));
-          button.textContent = "收起资源";
+          card.append(resourceWorkspace(data));
+          button.textContent = "收起";
         } catch (error) {
           button.textContent = "读取失败";
           showError(error);
-        } finally {
-          button.disabled = false;
-        }
+        } finally { button.disabled = false; }
       }
 
-      function snapshotDetails(snapshot) {
+      function resourceWorkspace(snapshot) {
         const details = element("div", "details");
+        const resources = snapshot.resources || [];
+        const counts = statusCounts(resources);
+        const summary = element("div", "detail-summary");
+        summary.append(
+          metricCard(resources.length, "全部资源"),
+          metricCard(counts.good, "运行正常"),
+          metricCard(counts.warn, "等待 / 未知"),
+          metricCard(counts.bad, "停止 / 异常")
+        );
+        details.append(summary);
+        if (snapshot.provider === "docker" || resources.some((item) => item.type.startsWith("docker."))) {
+          details.append(dockerWorkspace(snapshot));
+        } else {
+          details.append(genericResourceSection(resources, snapshot.relationships || []));
+        }
+        const raw = document.createElement("details");
+        raw.className = "raw";
+        const rawSummary = document.createElement("summary");
+        rawSummary.textContent = "全部原始资源（排障）";
+        raw.append(rawSummary, resourceTable(resources, snapshot.relationships || []));
+        details.append(raw);
+        return details;
+      }
+
+      function dockerWorkspace(snapshot) {
+        const root = element("div");
+        const resources = snapshot.resources || [];
+        const byID = new Map(resources.map((resource) => [resource.id, resource]));
+        const outgoing = relationshipMap(snapshot.relationships || [], "source");
+        const incoming = relationshipMap(snapshot.relationships || [], "target");
+        const engines = resources.filter((item) => item.type === "docker.engine");
+        const projects = resources.filter((item) => item.type === "docker.compose.project");
+        const swarmNodes = resources.filter((item) => item.type === "docker.swarm.node");
+        const swarmServices = resources.filter((item) => item.type === "docker.swarm.service");
+        const containers = resources.filter((item) => item.type === "docker.container");
+
+        if (engines.length) root.append(section("Docker Engine", engines.map((engine) => enginePanel(engine))));
+
+        if (projects.length) {
+          const panels = projects.map((project) => {
+            const services = relatedTargets(project.id, outgoing, byID, "contains", "docker.compose.service");
+            return workloadPanel(project, services.map((service) => {
+              const instances = relatedTargets(service.id, outgoing, byID, "instance", "docker.container");
+              return resourceBranch(service, instances.map(resourceRow));
+            }));
+          });
+          root.append(section("Compose Projects", panels, `${projects.length} 个项目`));
+        }
+
+        if (swarmNodes.length || swarmServices.length) {
+          const servicePanels = swarmServices.map((service) => {
+            const tasks = relatedTargets(service.id, outgoing, byID, "owns", "docker.swarm.task");
+            return workloadPanel(service, tasks.map((task) => {
+              const realized = relatedTargets(task.id, outgoing, byID, "realized_by", "docker.container");
+              return resourceBranch(task, realized.map(resourceRow));
+            }), serviceMetrics(service));
+          });
+          const nodePanels = swarmNodes.map((node) => {
+            const tasks = relatedTargets(node.id, outgoing, byID, "runs", "docker.swarm.task");
+            return resourceBranch(node, tasks.map(resourceRow));
+          });
+          root.append(section("Swarm Services", servicePanels, `${swarmServices.length} 个服务`));
+          root.append(section("Swarm Nodes", nodePanels, `${swarmNodes.length} 个节点`));
+        }
+
+        const attached = new Set();
+        for (const container of containers) {
+          const relations = incoming.get(container.id) || [];
+          if (relations.some((relation) => relation.type === "instance" || relation.type === "realized_by")) attached.add(container.id);
+        }
+        const standalone = containers.filter((container) => !attached.has(container.id));
+        if (standalone.length) root.append(section("Standalone Containers", standalone.map(resourceRow), `${standalone.length} 个容器`));
+        if (!root.children.length) root.append(emptyState("当前 Docker 快照没有可展示的工作负载。"));
+        return root;
+      }
+
+      function enginePanel(engine) {
+        const panel = element("article", "panel");
+        const head = element("div", "panel-head");
+        const title = element("div");
+        const name = document.createElement("h3"); name.textContent = engine.name || engine.id;
+        const type = element("div", "resource-type"); type.textContent = engine.id;
+        title.append(name, type);
+        head.append(title, statusElement(engine.status));
+        const meta = element("div", "panel-meta");
+        const attrs = engine.attributes || {};
+        [attrs.server_version && `Docker ${attrs.server_version}`, attrs.architecture, attrs.storage_driver,
+          attrs.swarm_state && `Swarm: ${attrs.swarm_state}`].filter(Boolean).forEach((item) => meta.append(badge(String(item))));
+        panel.append(head, meta);
+        return panel;
+      }
+
+      function workloadPanel(resource, children, extra = "") {
+        const panel = element("article", "panel");
+        const head = element("div", "panel-head");
+        const title = element("div");
+        const name = document.createElement("h3"); name.textContent = resource.name || resource.id;
+        const type = element("div", "resource-type"); type.textContent = friendlyType(resource.type);
+        title.append(name, type);
+        head.append(title, statusElement(resource.status));
+        panel.append(head);
+        if (extra) { const meta = element("div", "panel-meta"); meta.append(badge(extra)); panel.append(meta); }
+        const tree = element("div", "tree");
+        if (children.length) tree.append(...children); else tree.append(emptyState("暂无子资源"));
+        panel.append(tree);
+        return panel;
+      }
+
+      function resourceBranch(resource, children) {
+        const row = resourceRow(resource);
+        if (children.length) { const tree = element("div", "tree"); tree.append(...children); row.append(tree); }
+        return row;
+      }
+
+      function resourceRow(resource) {
+        const row = element("article", "resource-row");
+        const main = element("div", "resource-main");
+        const identity = element("div");
+        const name = element("div", "resource-name"); name.textContent = resource.name || resource.id;
+        const type = element("div", "resource-type");
+        const image = resource.attributes?.image;
+        type.textContent = image ? `${friendlyType(resource.type)} · ${image}` : friendlyType(resource.type);
+        identity.append(name, type);
+        main.append(identity, statusElement(resource.status));
+        row.append(main);
+        if (hasDetails(resource)) {
+          const extra = document.createElement("details"); extra.className = "resource-extra";
+          const summary = document.createElement("summary"); summary.textContent = "详情";
+          const pre = document.createElement("pre");
+          pre.textContent = JSON.stringify({ labels: resource.labels || {}, attributes: resource.attributes || {}, metrics: resource.metrics || {} }, null, 2);
+          extra.append(summary, pre); row.append(extra);
+        }
+        return row;
+      }
+
+      function section(title, children, meta = "") {
+        const section = element("section", "section");
+        const heading = element("div", "section-title");
+        const h3 = document.createElement("h3"); h3.textContent = title;
+        heading.append(h3);
+        if (meta) { const caption = document.createElement("span"); caption.textContent = meta; heading.append(caption); }
+        section.append(heading, ...children);
+        return section;
+      }
+
+      function genericResourceSection(resources, relationships) {
+        return section("资源", [resourceTable(resources, relationships)], `${resources.length} 项`);
+      }
+
+      function resourceTable(resources, relationships) {
+        const wrap = element("div", "table-wrap");
         const table = document.createElement("table");
         const header = document.createElement("thead");
         const headerRow = document.createElement("tr");
@@ -187,22 +401,36 @@
         });
         header.append(headerRow);
         const body = document.createElement("tbody");
-        const relations = relationIndex(snapshot.relationships || []);
-        for (const resource of snapshot.resources || []) {
+        const relations = relationIndex(relationships);
+        for (const resource of resources) {
           const row = document.createElement("tr");
           row.append(
             cell(resource.name || resource.id, resource.name ? resource.id : ""),
-            cell(resource.type),
-            cell(resource.status || "—"),
-            cell(keyValues(resource.labels)),
+            cell(resource.type), cell(resource.status || "—"), cell(keyValues(resource.labels)),
             cell((relations[resource.id] || []).join("\n") || "—"),
             jsonCell({ attributes: resource.attributes || {}, metrics: resource.metrics || {} })
           );
           body.append(row);
         }
-        table.append(header, body);
-        details.append(table);
-        return details;
+        table.append(header, body); wrap.append(table); return wrap;
+      }
+
+      function relationshipMap(relationships, key) {
+        const map = new Map();
+        for (const relation of relationships) {
+          const id = relation[key];
+          if (!map.has(id)) map.set(id, []);
+          map.get(id).push(relation);
+        }
+        return map;
+      }
+
+      function relatedTargets(source, outgoing, resources, relationType, resourceType) {
+        return (outgoing.get(source) || [])
+          .filter((relation) => relation.type === relationType)
+          .map((relation) => resources.get(relation.target))
+          .filter((resource) => resource && (!resourceType || resource.type === resourceType))
+          .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
       }
 
       function relationIndex(relationships) {
@@ -214,12 +442,51 @@
         return index;
       }
 
+      function statusCounts(resources) {
+        const counts = { good: 0, warn: 0, bad: 0 };
+        for (const resource of resources) counts[statusKind(resource.status)]++;
+        return counts;
+      }
+
+      function statusKind(status) {
+        const value = String(status || "unknown").toLowerCase();
+        if (goodStatuses.has(value)) return "good";
+        if (warningStatuses.has(value)) return "warn";
+        return "bad";
+      }
+
+      function statusElement(status) {
+        const item = element("span", `status ${statusKind(status)}`);
+        item.textContent = status || "unknown";
+        return item;
+      }
+
+      function serviceMetrics(service) {
+        const running = service.metrics?.["tasks.running"];
+        const desired = service.metrics?.["tasks.desired"];
+        return Number.isFinite(running) && Number.isFinite(desired) ? `${running} / ${desired} tasks` : "";
+      }
+
+      function friendlyType(type) {
+        const labels = {
+          "docker.engine": "Docker Engine", "docker.container": "Container",
+          "docker.compose.project": "Compose Project", "docker.compose.service": "Compose Service",
+          "docker.swarm.node": "Swarm Node", "docker.swarm.service": "Swarm Service",
+          "docker.swarm.task": "Swarm Task"
+        };
+        return labels[type] || type;
+      }
+
+      function metricCard(value, label) {
+        const card = element("article", "metric");
+        const strong = document.createElement("strong"); strong.textContent = String(Number(value || 0));
+        const caption = document.createElement("span"); caption.textContent = label;
+        card.append(strong, caption); return card;
+      }
+
       function cell(primary, secondary = "") {
-        const td = document.createElement("td");
-        td.textContent = primary || "—";
-        if (secondary) {
-          const extra = element("div", "muted"); extra.textContent = secondary; td.append(extra);
-        }
+        const td = document.createElement("td"); td.textContent = primary || "—";
+        if (secondary) { const extra = element("div", "muted"); extra.textContent = secondary; td.append(extra); }
         return td;
       }
 
@@ -236,8 +503,20 @@
         return entries.length ? entries.map(([key, item]) => `${key}=${item}`).join("\n") : "—";
       }
 
-      function badge(text, isStale = false) {
-        const item = element("span", `badge${isStale ? " stale" : ""}`); item.textContent = text; return item;
+      function badge(text, kind = "") {
+        const item = element("span", `badge${kind ? ` ${kind}` : ""}`); item.textContent = text; return item;
+      }
+
+      function option(value, label) {
+        const item = document.createElement("option"); item.value = value; item.textContent = label; return item;
+      }
+
+      function emptyState(message) {
+        const item = element("div", "empty"); item.textContent = message; return item;
+      }
+
+      function hasDetails(resource) {
+        return Object.keys(resource.labels || {}).length || Object.keys(resource.attributes || {}).length || Object.keys(resource.metrics || {}).length;
       }
 
       function element(tag, className = "") {
@@ -247,13 +526,17 @@
       async function requestJSON(url) {
         const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          const error = new Error(body.error || `HTTP ${response.status}`); error.status = response.status; throw error;
-        }
+        if (!response.ok) { const error = new Error(body.error || `HTTP ${response.status}`); error.status = response.status; throw error; }
         return body;
       }
 
-      function formatTime(value) { return new Date(value).toLocaleString(); }
+      function formatTime(value) { return value ? new Date(value).toLocaleString() : "—"; }
+      function formatRelative(value) {
+        const seconds = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 1000));
+        if (seconds < 60) return `${seconds} 秒前`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+        return formatTime(value);
+      }
       function showError(error) {
         const footer = document.querySelector("#updated"); footer.className = "error";
         footer.textContent = `读取失败：${error.message}`;
