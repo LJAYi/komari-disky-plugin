@@ -93,30 +93,39 @@
     <link rel="stylesheet" href="./pulse.css">
   </head>
   <body>
+    <header class="app-header">
+      <div class="brand"><span class="brand-mark"></span><strong>Disky</strong></div>
+      <nav class="primary-nav" aria-label="资源类型">
+        <button class="active" type="button" data-disky-view="overview">Docker</button>
+        <button type="button" data-disky-view="compose">Compose</button>
+        <button type="button" data-disky-view="swarm">Swarm</button>
+      </nav>
+      <div class="app-actions"><span class="connection-status">Connected</span><button id="header-refresh" type="button">刷新</button></div>
+    </header>
     <main>
-      <header class="page-header">
-        <div>
-          <span class="page-eyebrow">Infrastructure</span>
-          <h1>资源与编排</h1>
-          <p>查看 Disky Agent 发现的 Docker、Compose、Swarm 与其他扩展资源。</p>
-        </div>
-        <span class="live-indicator">资源快照</span>
-      </header>
-      <section class="overview" id="overview" aria-live="polite"></section>
+      <section class="workspace">
+        <nav class="secondary-nav" aria-label="Docker 资源视图">
+          <button class="active" type="button" data-disky-view="overview">Overview</button>
+          <button type="button" data-disky-view="containers">Containers</button>
+          <button type="button" data-disky-view="compose">Compose</button>
+          <button type="button" data-disky-view="swarm">Swarm</button>
+        </nav>
+        <section class="overview" id="overview" aria-live="polite"></section>
 
-      <section id="resources" class="hidden">
+        <section id="resources" class="hidden">
         <div class="resources-head">
-          <div><h2>设备与工作负载</h2><span id="resource-count">0 个快照</span></div>
-          <span>按 Agent 与 Provider 聚合</span>
+          <div><h2>Workloads</h2><span id="resource-count">0 个资源</span></div>
+          <span>按 Docker Host 聚合</span>
         </div>
         <div class="toolbar">
-          <input id="search" type="search" placeholder="搜索设备、项目、服务或资源类型" aria-label="搜索资源">
+          <input id="search" type="search" placeholder="搜索容器、镜像、项目、服务或主机" aria-label="搜索资源">
           <select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select>
           <label class="check"><input id="show-stale" type="checkbox">显示已过期</label>
           <button id="refresh" type="button">刷新</button>
         </div>
         <div id="snapshots"></div>
         <button id="more" class="hidden" type="button">加载更多</button>
+        </section>
       </section>
 
       <footer id="updated">正在读取…</footer>
@@ -144,7 +153,8 @@
 
       const state = {
         summaries: [], offset: 0, total: 0, loading: false,
-        clientNames: new Map(), expanded: new Map()
+        clientNames: new Map(), clients: new Map(), expanded: new Map(),
+        fullSnapshots: new Map(), view: "overview"
       };
       const overviewLabels = {
         clients: "设备", providers: "Provider", snapshots: "快照",
@@ -157,7 +167,13 @@
       document.querySelector("#provider").addEventListener("change", renderSummaries);
       document.querySelector("#show-stale").addEventListener("change", renderSummaries);
       document.querySelector("#refresh").addEventListener("click", () => refreshAll());
+      document.querySelector("#header-refresh").addEventListener("click", () => refreshAll());
       document.querySelector("#more").addEventListener("click", () => loadSummaries(false));
+      document.querySelectorAll("[data-disky-view]").forEach((button) => button.addEventListener("click", () => {
+        state.view = button.dataset.diskyView;
+        document.querySelectorAll("[data-disky-view]").forEach((item) => item.classList.toggle("active", item.dataset.diskyView === state.view));
+        renderSummaries();
+      }));
 
       refreshAll().catch(showError);
 
@@ -168,14 +184,14 @@
 
       async function loadOverview() {
         const { data } = await requestJSON("/api/disky/v1/overview");
-        const container = document.querySelector("#overview");
-        container.replaceChildren(...Object.entries(overviewLabels).map(([key, label]) => metricCard(data[key] || 0, label)));
+        state.overview = data;
         document.querySelector("#updated").textContent = `更新时间：${formatTime(data.generated_at)}`;
       }
 
       async function loadNodes() {
         const result = await requestJSON("/api/nodes");
         const nodes = Array.isArray(result.data) ? result.data : [];
+        state.clients = new Map(nodes.map((node) => [node.uuid, node]));
         state.clientNames = new Map(nodes.map((node) => [node.uuid, node.name || node.uuid]));
       }
 
@@ -189,7 +205,7 @@
           state.summaries.push(...result.data);
           state.offset += result.data.length;
           state.total = result.pagination.total;
-          document.querySelector("#resource-count").textContent = `${state.total} 个快照`;
+          await preloadSnapshots(result.data);
           document.querySelector("#resources").classList.remove("hidden");
           document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
           updateProviders();
@@ -201,6 +217,27 @@
         } finally {
           state.loading = false;
         }
+      }
+
+      async function preloadSnapshots(summaries) {
+        await Promise.all(summaries.filter((item) => item.provider === "docker" && !item.stale).map(async (summary) => {
+          const key = scopeKey(summary);
+          if (state.fullSnapshots.has(key)) return;
+          const query = new URLSearchParams({
+            view: "full", client_uuid: summary.source_client_uuid,
+            provider: summary.provider, provider_instance: summary.provider_instance
+          });
+          try {
+            const { data } = await requestJSON(`/api/disky/v1/snapshots?${query}`);
+            state.fullSnapshots.set(key, data);
+          } catch (error) {
+            if (error.status !== 401 && error.status !== 403) throw error;
+          }
+        }));
+      }
+
+      function scopeKey(snapshot) {
+        return `${snapshot.source_client_uuid}\u0000${snapshot.provider}\u0000${snapshot.provider_instance}`;
       }
 
       function updateProviders() {
@@ -222,8 +259,218 @@
           return (showStale || !snapshot.stale) && (!provider || snapshot.provider === provider) && (!needle || text.includes(needle));
         }).sort((a, b) => Number(a.stale) - Number(b.stale) || Date.parse(b.received_at) - Date.parse(a.received_at));
         const container = document.querySelector("#snapshots");
-        container.replaceChildren(...visible.map(snapshotCard));
+        const dockerSnapshots = visible.map((summary) => state.fullSnapshots.get(scopeKey(summary))).filter(Boolean);
+        const other = visible.filter((summary) => summary.provider !== "docker");
+        const overview = document.querySelector("#overview");
+        if (dockerSnapshots.length && (state.view === "overview" || state.view === "containers")) {
+          overview.className = "overview pulse-overview";
+          overview.replaceChildren(dockerHostsTable(dockerSnapshots));
+        } else if (!dockerSnapshots.length && state.overview) {
+          overview.className = "overview";
+          overview.replaceChildren(...Object.entries(overviewLabels).map(([key, label]) => metricCard(state.overview[key] || 0, label)));
+        } else {
+          overview.replaceChildren();
+        }
+        container.replaceChildren();
+        if (dockerSnapshots.length) container.append(dockerPulseWorkspace(dockerSnapshots, needle));
+        if (other.length) container.append(...other.map(snapshotCard));
         if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
+        const resourceCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources?.length || 0), 0);
+        document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
+      }
+
+      function dockerPulseWorkspace(snapshots, needle) {
+        const root = element("div", "pulse-workspace");
+        if (state.view === "compose") {
+          root.append(composeTable(snapshots, needle));
+          return root;
+        }
+        if (state.view === "swarm") {
+          root.append(...swarmTables(snapshots, needle));
+          return root;
+        }
+        root.append(containerTable(snapshots, needle));
+        return root;
+      }
+
+      function dockerHostsTable(snapshots) {
+        const rows = snapshots.map((snapshot) => {
+          const resources = snapshot.resources || [];
+          const engine = resources.find((item) => item.type === "docker.engine") || {};
+          const attrs = engine.attributes || {};
+          const client = state.clients.get(snapshot.source_client_uuid) || {};
+          const containers = resources.filter((item) => item.type === "docker.container").length;
+          const projects = resources.filter((item) => item.type === "docker.compose.project").length;
+          const nodes = resources.filter((item) => item.type === "docker.swarm.node");
+          const services = resources.filter((item) => item.type === "docker.swarm.service").length;
+          return [
+            statusNameCell(state.clientNames.get(snapshot.source_client_uuid) || engine.name || snapshot.source_client_uuid, engine.status),
+            textCell(attrs.operating_system || client.os || "—", attrs.architecture || client.arch || ""),
+            textCell(attrs.server_version || "—"),
+            numberCell(containers), numberCell(projects),
+            textCell(nodes.length ? `${nodes.length} nodes / ${services} services` : "—"),
+            statusCell(engine.status || (snapshot.stale ? "stale" : "running")),
+            textCell(formatRelative(snapshot.received_at))
+          ];
+        }).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
+        return pulseTablePanel("Hosts", rows.length, ["Host", "System", "Engine", "Containers", "Compose", "Swarm", "State", "Updated"], rows, "hosts");
+      }
+
+      function containerTable(snapshots, needle) {
+        const groups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const context = orchestrationContext(snapshot);
+          const resources = (snapshot.resources || []).filter((item) => item.type === "docker.container");
+          const rows = resources.map((resource) => {
+            const attrs = resource.attributes || {};
+            const compose = context.compose.get(resource.id);
+            const swarm = context.swarm.get(resource.id);
+            const text = [resource.name, attrs.image, resource.status, host, compose?.project, compose?.service, swarm?.service].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            const orchestration = compose ? `${compose.project} / ${compose.service}` : swarm ? `Swarm / ${swarm.service}` : "Standalone";
+            return [
+              statusNameCell(resource.name || resource.id, resource.status),
+              textCell(host), textCell(shortImage(attrs.image || "—")), statusCell(resource.status),
+              textCell(orchestration), textCell(attrs.status_text || "—"),
+              textCell(formatCreated(attrs.created)), resourceDetailCell(resource)
+            ];
+          }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
+          if (rows.length) groups.push({ host, rows });
+        }
+        return groupedTablePanel("Containers", groups.reduce((sum, group) => sum + group.rows.length, 0),
+          ["Container", "Host", "Image", "State", "Orchestration", "Docker status", "Created", "Details"], groups);
+      }
+
+      function composeTable(snapshots, needle) {
+        const groups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const resources = snapshot.resources || [];
+          const byID = new Map(resources.map((item) => [item.id, item]));
+          const outgoing = relationshipMap(snapshot.relationships || [], "source");
+          const rows = resources.filter((item) => item.type === "docker.compose.project").map((project) => {
+            const services = relatedTargets(project.id, outgoing, byID, "contains", "docker.compose.service");
+            const containers = services.flatMap((service) => relatedTargets(service.id, outgoing, byID, "instance", "docker.container"));
+            const text = [project.name, host, ...services.map((item) => item.name)].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            return [statusNameCell(project.name || project.id, project.status), textCell(host), numberCell(services.length),
+              numberCell(containers.length), statusCell(project.status), textCell(services.map((item) => item.name).join(", ") || "—"), resourceDetailCell(project)];
+          }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
+          if (rows.length) groups.push({ host, rows });
+        }
+        return groupedTablePanel("Compose Projects", groups.reduce((sum, group) => sum + group.rows.length, 0),
+          ["Project", "Host", "Services", "Containers", "State", "Service names", "Details"], groups);
+      }
+
+      function swarmTables(snapshots, needle) {
+        const nodeRows = [];
+        const serviceGroups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const resources = snapshot.resources || [];
+          for (const node of resources.filter((item) => item.type === "docker.swarm.node")) {
+            const attrs = node.attributes || {};
+            const text = [node.name, host, node.status, attrs.role, attrs.address].join(" ").toLowerCase();
+            if (!needle || text.includes(needle)) nodeRows.push([
+              statusNameCell(node.name || node.id, node.status), textCell(host), textCell(attrs.role || (attrs.manager ? "manager" : "worker")),
+              textCell(attrs.availability || "—"), textCell(attrs.engine_version || "—"), textCell(attrs.address || "—"), statusCell(node.status), resourceDetailCell(node)
+            ]);
+          }
+          const rows = resources.filter((item) => item.type === "docker.swarm.service").map((service) => {
+            const attrs = service.attributes || {}; const metrics = service.metrics || {};
+            const text = [service.name, host, service.status, attrs.image, attrs.mode].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            const tasks = Number.isFinite(metrics["tasks.running"]) ? `${metrics["tasks.running"]} / ${metrics["tasks.desired"] ?? "—"}` : "—";
+            return [statusNameCell(service.name || service.id, service.status), textCell(host), textCell(shortImage(attrs.image || "—")),
+              textCell(attrs.mode || "—"), textCell(tasks), statusCell(service.status), resourceDetailCell(service)];
+          }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
+          if (rows.length) serviceGroups.push({ host, rows });
+        }
+        return [
+          pulseTablePanel("Swarm Nodes", nodeRows.length, ["Node", "Observed by", "Role", "Availability", "Engine", "Address", "State", "Details"], nodeRows, "swarm-nodes"),
+          groupedTablePanel("Swarm Services", serviceGroups.reduce((sum, group) => sum + group.rows.length, 0),
+            ["Service", "Host", "Image", "Mode", "Tasks", "State", "Details"], serviceGroups)
+        ];
+      }
+
+      function orchestrationContext(snapshot) {
+        const resources = snapshot.resources || [];
+        const byID = new Map(resources.map((item) => [item.id, item]));
+        const compose = new Map(); const swarm = new Map(); const projectByService = new Map(); const swarmServiceByTask = new Map();
+        for (const relation of snapshot.relationships || []) {
+          const source = byID.get(relation.source); const target = byID.get(relation.target);
+          if (relation.type === "contains" && source?.type === "docker.compose.project" && target?.type === "docker.compose.service") projectByService.set(target.id, source);
+          if (relation.type === "owns" && source?.type === "docker.swarm.service" && target?.type === "docker.swarm.task") swarmServiceByTask.set(target.id, source);
+        }
+        for (const relation of snapshot.relationships || []) {
+          const source = byID.get(relation.source); const target = byID.get(relation.target);
+          if (relation.type === "instance" && source?.type === "docker.compose.service" && target?.type === "docker.container") {
+            compose.set(target.id, { project: projectByService.get(source.id)?.name || "Compose", service: source.name || "service" });
+          }
+          if (relation.type === "realized_by" && source?.type === "docker.swarm.task" && target?.type === "docker.container") {
+            swarm.set(target.id, { service: swarmServiceByTask.get(source.id)?.name || "service" });
+          }
+        }
+        return { compose, swarm };
+      }
+
+      function pulseTablePanel(title, count, headers, rows, kind = "") {
+        const panel = element("section", `pulse-table-panel${kind ? ` ${kind}` : ""}`);
+        const heading = element("div", "pulse-table-title");
+        const name = document.createElement("strong"); name.textContent = title;
+        const total = element("span"); total.textContent = String(count);
+        heading.append(name, total);
+        const wrap = element("div", "pulse-table-scroll");
+        const table = element("table", "pulse-table");
+        const thead = document.createElement("thead"); const headRow = document.createElement("tr");
+        headers.forEach((label) => { const th = document.createElement("th"); th.textContent = label; headRow.append(th); });
+        thead.append(headRow); const tbody = document.createElement("tbody");
+        rows.forEach((cells) => { const tr = document.createElement("tr"); tr.append(...cells); tbody.append(tr); });
+        table.append(thead, tbody); wrap.append(table); panel.append(heading, wrap); return panel;
+      }
+
+      function groupedTablePanel(title, count, headers, groups) {
+        const panel = pulseTablePanel(title, count, headers, []);
+        const tbody = panel.querySelector("tbody");
+        for (const group of groups) {
+          const groupRow = element("tr", "group-row"); const td = document.createElement("td"); td.colSpan = headers.length;
+          const strong = document.createElement("strong"); strong.textContent = group.host;
+          const span = element("span"); span.textContent = `${group.rows.length} ${title.toLowerCase()}`;
+          td.append(strong, span); groupRow.append(td); tbody.append(groupRow);
+          group.rows.forEach((cells) => { const tr = document.createElement("tr"); tr.append(...cells); tbody.append(tr); });
+        }
+        return panel;
+      }
+
+      function textCell(primary, secondary = "") {
+        const td = document.createElement("td"); const main = element("span", "cell-primary"); main.textContent = String(primary ?? "—"); td.append(main);
+        if (secondary) { const small = element("small"); small.textContent = String(secondary); td.append(small); }
+        return td;
+      }
+
+      function numberCell(value) { const td = textCell(value); td.classList.add("number-cell"); return td; }
+
+      function statusNameCell(name, status) {
+        const td = document.createElement("td"); const wrap = element("div", "name-cell");
+        const dot = element("span", `status-dot ${statusKind(status)}`); const strong = document.createElement("strong"); strong.textContent = name;
+        wrap.append(dot, strong); td.append(wrap); return td;
+      }
+
+      function statusCell(status) { const td = document.createElement("td"); td.append(statusElement(status)); return td; }
+
+      function resourceDetailCell(resource) {
+        const td = document.createElement("td"); const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "View";
+        const pre = document.createElement("pre"); pre.textContent = JSON.stringify({ labels: resource.labels || {}, attributes: resource.attributes || {}, metrics: resource.metrics || {} }, null, 2);
+        details.append(summary, pre); td.append(details); return td;
+      }
+
+      function shortImage(image) {
+        const value = String(image || ""); return value.length > 54 ? `${value.slice(0, 51)}…` : value;
+      }
+
+      function formatCreated(value) {
+        const seconds = Number(value); return Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toLocaleDateString() : "—";
       }
 
       function snapshotCard(snapshot) {
