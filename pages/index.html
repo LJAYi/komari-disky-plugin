@@ -98,7 +98,7 @@
       <nav class="primary-nav" aria-label="资源类型">
         <button class="active" type="button" aria-current="page">Docker</button>
       </nav>
-      <div class="app-actions"><span class="connection-status">Connected</span><button id="header-refresh" type="button">刷新</button></div>
+      <div class="app-actions"><span class="connection-status">Connected</span><button id="header-refresh" type="button" aria-label="刷新" title="刷新">↻</button></div>
     </header>
     <main>
       <section class="workspace">
@@ -354,7 +354,7 @@
             textCell(formatRelative(snapshot.received_at))
           ];
         }).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
-        return pulseTablePanel("Hosts", rows.length, ["Host", "System", "Engine", "Containers", "Compose", "Swarm", "State", "Updated"], rows, "hosts");
+        return pulseTablePanel("Hosts", rows.length, ["Host", "System", "Version", "Containers", "Compose", "Swarm", "State", "Updated"], rows, "hosts");
       }
 
       function containerTable(snapshots, needle) {
