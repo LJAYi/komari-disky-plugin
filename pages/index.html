@@ -90,15 +90,25 @@
         input[type="search"] { min-width: 100%; }
       }
     </style>
+    <link rel="stylesheet" href="./pulse.css">
   </head>
   <body>
     <main>
-      <h1>Komari Disky</h1>
-      <p>独立展示设备侧 Provider 提交的资源、编排关系与运行状态。</p>
+      <header class="page-header">
+        <div>
+          <span class="page-eyebrow">Infrastructure</span>
+          <h1>资源与编排</h1>
+          <p>查看 Disky Agent 发现的 Docker、Compose、Swarm 与其他扩展资源。</p>
+        </div>
+        <span class="live-indicator">资源快照</span>
+      </header>
       <section class="overview" id="overview" aria-live="polite"></section>
 
       <section id="resources" class="hidden">
-        <h2>设备与工作负载</h2>
+        <div class="resources-head">
+          <div><h2>设备与工作负载</h2><span id="resource-count">0 个快照</span></div>
+          <span>按 Agent 与 Provider 聚合</span>
+        </div>
         <div class="toolbar">
           <input id="search" type="search" placeholder="搜索设备、项目、服务或资源类型" aria-label="搜索资源">
           <select id="provider" aria-label="Provider 筛选"><option value="">全部 Provider</option></select>
@@ -112,6 +122,26 @@
       <footer id="updated">正在读取…</footer>
     </main>
     <script>
+      syncColorScheme();
+
+      function syncColorScheme() {
+        const apply = () => {
+          try {
+            const parentRoot = window.parent.document.documentElement;
+            document.documentElement.classList.toggle("dark", parentRoot.classList.contains("dark"));
+            document.documentElement.classList.toggle("light", parentRoot.classList.contains("light"));
+          } catch {
+            document.documentElement.classList.toggle("dark", window.matchMedia("(prefers-color-scheme: dark)").matches);
+          }
+        };
+        apply();
+        try {
+          new MutationObserver(apply).observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ["class"] });
+        } catch {
+          window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", apply);
+        }
+      }
+
       const state = {
         summaries: [], offset: 0, total: 0, loading: false,
         clientNames: new Map(), expanded: new Map()
@@ -159,6 +189,7 @@
           state.summaries.push(...result.data);
           state.offset += result.data.length;
           state.total = result.pagination.total;
+          document.querySelector("#resource-count").textContent = `${state.total} 个快照`;
           document.querySelector("#resources").classList.remove("hidden");
           document.querySelector("#more").classList.toggle("hidden", !result.pagination.has_more);
           updateProviders();
