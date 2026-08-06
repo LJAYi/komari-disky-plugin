@@ -295,8 +295,21 @@
         if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
         const resourceCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources?.length || 0), 0);
         document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
-        const containerCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources || []).filter((item) => item.type === "docker.container" && matchesStatusFilter(item.status)).length, 0);
+        const containerCount = countVisibleContainers(dockerSnapshots, needle);
         document.querySelector("#visible-count").textContent = `${containerCount} containers`;
+      }
+
+      function countVisibleContainers(snapshots, needle) {
+        return snapshots.reduce((sum, snapshot) => {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const context = orchestrationContext(snapshot);
+          return sum + (snapshot.resources || []).filter((resource) => {
+            if (resource.type !== "docker.container" || !matchesStatusFilter(resource.status)) return false;
+            const attrs = resource.attributes || {}; const compose = context.compose.get(resource.id); const swarm = context.swarm.get(resource.id);
+            const text = [resource.name, attrs.image, resource.status, host, compose?.project, compose?.service, swarm?.service].join(" ").toLowerCase();
+            return !needle || text.includes(needle);
+          }).length;
+        }, 0);
       }
 
       function dockerPulseWorkspace(snapshots, needle) {
