@@ -110,6 +110,9 @@
           <button type="button" data-disky-view="containers">Containers</button>
           <button type="button" data-disky-view="compose">Compose</button>
           <button type="button" data-disky-view="swarm">Swarm</button>
+          <button type="button" data-disky-view="images">Images</button>
+          <button type="button" data-disky-view="storage">Storage</button>
+          <button type="button" data-disky-view="networks">Networks</button>
         </nav>
         <section class="overview" id="overview" aria-live="polite"></section>
 
@@ -174,7 +177,7 @@
         clients: "设备", providers: "Provider", snapshots: "快照",
         resources: "资源", relationships: "关系", stale: "已过期"
       };
-      const goodStatuses = new Set(["running", "active", "ready", "complete", "completed", "allocated"]);
+      const goodStatuses = new Set(["running", "active", "ready", "available", "healthy", "online", "complete", "completed", "allocated"]);
       const warningStatuses = new Set(["paused", "pending", "preparing", "starting", "new", "unknown"]);
 
       document.querySelector("#search").addEventListener("input", renderSummaries);
@@ -332,7 +335,7 @@
       }
 
       function proxmoxWorkspace(snapshots) {
-        const nodes = []; const guests = [];
+        const nodes = []; const guests = []; const storage = []; const disks = []; const pools = [];
         for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
           const attrs = resource.attributes || {};
           if (resource.type === "proxmox.node") nodes.push([
@@ -345,10 +348,31 @@
             percentCell(resource.metrics?.["cpu.ratio"]), bytesCell(resource.metrics?.["memory.used_bytes"], attrs.max_memory_bytes),
             statusCell(resource.status), resourceDetailCell(resource)
           ]);
+          if (resource.type === "proxmox.storage") storage.push([
+            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"), textCell(attrs.storage_type || "—"),
+            textCell(arrayText(attrs.content)), bytesCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
+            percentValueCell(resource.metrics?.["capacity.used_percent"]), textCell(attrs.shared ? "Shared" : "Local"), statusCell(resource.status), resourceDetailCell(resource)
+          ]);
+          if (resource.type === "proxmox.physical_disk") disks.push([
+            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"), textCell(attrs.device || "—"),
+            textCell([attrs.vendor, attrs.model].filter(Boolean).join(" ") || "—", attrs.serial || attrs.wwn || ""),
+            textCell(attrs.media_type || "—"), textCell(formatBytes(resource.metrics?.["size.bytes"])), textCell(attrs.used_by || "—"),
+            textCell(formatWear(attrs.wearout)), textCell(attrs.smart_health || attrs.health || "—"), resourceDetailCell(resource)
+          ]);
+          if (resource.type === "proxmox.zfs_pool") pools.push([
+            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"),
+            bytesCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
+            percentValueCell(resource.metrics?.["capacity.used_percent"]), percentValueCell(resource.metrics?.["fragmentation.percent"]),
+            textCell(Number.isFinite(Number(resource.metrics?.["dedup.ratio"])) ? `${Number(resource.metrics["dedup.ratio"]).toFixed(2)}×` : "—"),
+            textCell(attrs.health || resource.status || "—"), resourceDetailCell(resource)
+          ]);
         }
         const root = element("div", "pulse-workspace");
         root.append(pulseTablePanel("Proxmox Nodes", nodes.length, ["Node", "System", "Version", "CPU", "Sockets", "Cores", "State", "Details"], nodes, "proxmox-nodes"));
         root.append(pulseTablePanel("VM & LXC", guests.length, ["Guest", "Type", "Node", "VMID", "System", "CPU", "Memory", "State", "Details"], guests, "proxmox-guests"));
+        root.append(pulseTablePanel("Storage", storage.length, ["Storage", "Node", "Type", "Content", "Capacity", "Used", "Scope", "State", "Details"], storage, "proxmox-storage"));
+        root.append(pulseTablePanel("Physical Disks & SMART", disks.length, ["Disk", "Node", "Device", "Model / Serial", "Media", "Size", "Used by", "Wear", "SMART", "Details"], disks, "proxmox-disks"));
+        root.append(pulseTablePanel("ZFS Pools", pools.length, ["Pool", "Node", "Capacity", "Used", "Fragmentation", "Dedup", "Health", "Details"], pools, "proxmox-zfs"));
         return root;
       }
 
@@ -393,8 +417,11 @@
       }
 
       function percentCell(value) { return textCell(Number.isFinite(Number(value)) ? `${Math.round(Number(value) * 100)}%` : "—"); }
+      function percentValueCell(value) { return textCell(Number.isFinite(Number(value)) ? `${Number(value).toFixed(Number(value) < 10 ? 1 : 0)}%` : "—"); }
       function bytesCell(used, total) { return textCell(formatBytes(Number(used)), Number(total) > 0 ? `/ ${formatBytes(Number(total))}` : ""); }
       function formatBytes(value) { if (!Number.isFinite(value) || value < 0) return "—"; const units = ["B", "KiB", "MiB", "GiB", "TiB"]; let index = 0; while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; } return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`; }
+      function arrayText(value) { return Array.isArray(value) ? value.join(", ") || "—" : String(value || "—"); }
+      function formatWear(value) { if (value === undefined || value === null || value === "") return "—"; const text = String(value); return /^\d+(\.\d+)?$/.test(text) ? `${text}%` : text; }
 
       function snapshotMatchesNeedle(summary, needle) {
         if (!needle) return true;
@@ -428,6 +455,18 @@
         }
         if (state.view === "swarm") {
           root.append(...swarmTables(snapshots, needle));
+          return root;
+        }
+        if (state.view === "images") {
+          root.append(imagesTable(snapshots, needle));
+          return root;
+        }
+        if (state.view === "storage") {
+          root.append(...storageTables(snapshots, needle));
+          return root;
+        }
+        if (state.view === "networks") {
+          root.append(networksTable(snapshots, needle));
           return root;
         }
         root.append(containerTable(snapshots, needle));
@@ -471,19 +510,93 @@
             const text = [resource.name, attrs.image, resource.status, host, compose?.project, compose?.service, swarm?.service].join(" ").toLowerCase();
             if ((needle && !text.includes(needle)) || !matchesStatusFilter(resource.status)) return null;
             const orchestration = compose ? `${compose.project} / ${compose.service}` : swarm ? `Swarm / ${swarm.service}` : "Standalone";
+            const metrics = resource.metrics || {};
+            const health = attrs.health || resource.status;
             return [
               statusNameCell(resource.name || resource.id, resource.status),
-              textCell(host), textCell(runtime), textCell(shortImage(attrs.image || "—")), statusCell(resource.status),
-              textCell(orchestration), textCell(attrs.status_text || "—"),
-              textCell(formatCreated(attrs.created)), resourceDetailCell(resource)
+              textCell(host), textCell(shortImage(attrs.image || "—")), percentValueCell(metrics["cpu.percent"]),
+              bytesCell(metrics["memory.used_bytes"], metrics["memory.limit_bytes"]), textCell(health || "—"),
+              textCell(formatPorts(attrs.ports)), textCell(formatNetworks(attrs.networks)), textCell(formatMounts(attrs.mounts)),
+              textCell(orchestration, runtime), statusCell(resource.status), resourceDetailCell(resource)
             ];
           }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
           if (rows.length) groups.push({ host, rows });
         }
-        const headers = ["Container", "Host", "Runtime", "Image", "State", "Workload", "Docker status", "Created", "Details"];
+        const headers = ["Container", "Host", "Image", "CPU", "Memory", "Health", "Ports", "Networks", "Mounts", "Workload", "State", "Details"];
         const count = groups.reduce((sum, group) => sum + group.rows.length, 0);
         return state.grouped ? groupedTablePanel("Containers", count, headers, groups, "containers") : pulseTablePanel("Containers", count, headers, groups.flatMap((group) => group.rows), "containers");
       }
+
+      function imagesTable(snapshots, needle) {
+        const groups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const outgoing = relationshipMap(snapshot.relationships || [], "source");
+          const byID = new Map((snapshot.resources || []).map((item) => [item.id, item]));
+          const rows = (snapshot.resources || []).filter((item) => item.type === "docker.image").map((resource) => {
+            const attrs = resource.attributes || {};
+            const usedBy = relatedTargets(resource.id, outgoing, byID, "used_by", "docker.container");
+            const text = [resource.name, host, ...arrayValue(attrs.repo_tags), ...usedBy.map((item) => item.name)].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            return [textCell(resource.name || resource.id, shortIDText(attrs.image_id)), textCell(host), textCell(arrayText(attrs.repo_tags)),
+              textCell(formatBytes(resource.metrics?.["size.bytes"])), numberCell(usedBy.length), textCell(usedBy.map((item) => item.name).join(", ") || "—"),
+              textCell(formatCreated(attrs.created)), resourceDetailCell(resource)];
+          }).filter(Boolean);
+          if (rows.length) groups.push({ host, rows });
+        }
+        return groupedTablePanel("Images", groups.reduce((sum, group) => sum + group.rows.length, 0),
+          ["Image", "Host", "Tags", "Size", "In use", "Containers", "Created", "Details"], groups, "images");
+      }
+
+      function storageTables(snapshots, needle) {
+        const engineRows = []; const volumeGroups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const resources = snapshot.resources || []; const byID = new Map(resources.map((item) => [item.id, item]));
+          const outgoing = relationshipMap(snapshot.relationships || [], "source");
+          const engine = resources.find((item) => item.type === "docker.engine");
+          if (engine) engineRows.push([statusNameCell(host, engine.status), textCell(engine.attributes?.storage_driver || "—"),
+            textCell(formatBytes(engine.metrics?.["storage.layers_bytes"])), textCell(formatBytes(engine.metrics?.["storage.build_cache_bytes"])),
+            textCell(formatBytes(engine.metrics?.["storage.build_cache_reclaimable_bytes"])), statusCell(engine.status), resourceDetailCell(engine)]);
+          const rows = resources.filter((item) => item.type === "docker.volume").map((resource) => {
+            const attrs = resource.attributes || {}; const mounted = relatedTargets(resource.id, outgoing, byID, "mounted_by", "docker.container");
+            const text = [resource.name, host, attrs.driver, attrs.mountpoint, ...mounted.map((item) => item.name)].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            return [statusNameCell(resource.name || resource.id, resource.status), textCell(host), textCell(attrs.driver || "—"),
+              textCell(formatBytes(resource.metrics?.["size.bytes"])), numberCell(attrs.ref_count ?? mounted.length),
+              textCell(mounted.map((item) => item.name).join(", ") || "—"), textCell(attrs.mountpoint || "—"), resourceDetailCell(resource)];
+          }).filter(Boolean);
+          if (rows.length) volumeGroups.push({ host, rows });
+        }
+        return [pulseTablePanel("Docker Storage", engineRows.length, ["Host", "Driver", "Layers", "Build cache", "Reclaimable", "State", "Details"], engineRows, "docker-storage"),
+          groupedTablePanel("Volumes", volumeGroups.reduce((sum, group) => sum + group.rows.length, 0),
+            ["Volume", "Host", "Driver", "Size", "Refs", "Mounted by", "Mountpoint", "Details"], volumeGroups, "volumes")];
+      }
+
+      function networksTable(snapshots, needle) {
+        const groups = [];
+        for (const snapshot of snapshots) {
+          const host = state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const rows = (snapshot.resources || []).filter((item) => item.type === "docker.network").map((resource) => {
+            const attrs = resource.attributes || {};
+            const text = [resource.name, host, attrs.driver, attrs.scope, JSON.stringify(attrs.subnets || [])].join(" ").toLowerCase();
+            if (needle && !text.includes(needle)) return null;
+            return [statusNameCell(resource.name || resource.id, resource.status), textCell(host), textCell(attrs.driver || "—"), textCell(attrs.scope || "—"),
+              textCell(formatSubnets(attrs.subnets)), numberCell(attrs.attached_containers ?? 0), textCell(attrs.internal ? "Internal" : attrs.ingress ? "Ingress" : "Standard"),
+              textCell(attrs.enable_ipv6 ? "Enabled" : "Disabled"), resourceDetailCell(resource)];
+          }).filter(Boolean);
+          if (rows.length) groups.push({ host, rows });
+        }
+        return groupedTablePanel("Networks", groups.reduce((sum, group) => sum + group.rows.length, 0),
+          ["Network", "Host", "Driver", "Scope", "Subnets", "Attached", "Mode", "IPv6", "Details"], groups, "networks");
+      }
+
+      function arrayValue(value) { return Array.isArray(value) ? value : []; }
+      function shortIDText(value) { return String(value || "").replace(/^sha256:/, "").slice(0, 12); }
+      function formatPorts(value) { return arrayValue(value).map((item) => item.host_port ? `${item.host_ip && item.host_ip !== "0.0.0.0" ? `${item.host_ip}:` : ""}${item.host_port}→${item.container_port}` : item.container_port).join(", ") || "—"; }
+      function formatNetworks(value) { return arrayValue(value).map((item) => `${item.name || "network"}${item.ip_address ? ` (${item.ip_address})` : ""}`).join(", ") || "—"; }
+      function formatMounts(value) { return arrayValue(value).map((item) => `${item.name || item.type || "mount"} → ${item.destination || "—"}`).join(", ") || "—"; }
+      function formatSubnets(value) { return arrayValue(value).map((item) => [item.subnet, item.gateway && `gw ${item.gateway}`].filter(Boolean).join(" · ")).join(", ") || "—"; }
 
       function composeTable(snapshots, needle) {
         const groups = [];
@@ -915,9 +1028,14 @@
       function friendlyType(type) {
         const labels = {
           "docker.engine": "Docker Engine", "docker.container": "Container",
+          "docker.image": "Image", "docker.volume": "Volume", "docker.network": "Network",
           "docker.compose.project": "Compose Project", "docker.compose.service": "Compose Service",
           "docker.swarm.node": "Swarm Node", "docker.swarm.service": "Swarm Service",
-          "docker.swarm.task": "Swarm Task"
+          "docker.swarm.task": "Swarm Task", "proxmox.node": "Proxmox Node",
+          "proxmox.qemu": "Virtual Machine", "proxmox.lxc": "LXC Container",
+          "proxmox.storage": "Proxmox Storage", "proxmox.physical_disk": "Physical Disk",
+          "proxmox.zfs_pool": "ZFS Pool", "windows.wsl": "WSL Distribution",
+          "slurm.cluster": "Slurm Cluster", "slurm.partition": "Slurm Partition", "slurm.job": "Slurm Job"
         };
         return labels[type] || type;
       }

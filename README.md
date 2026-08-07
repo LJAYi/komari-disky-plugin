@@ -59,9 +59,16 @@ Malformed JSON returns `400`; schema or relationship-reference errors return
 
 The plugin page keeps the public view limited to aggregate counts. When opened
 by an administrator, it additionally shows searchable snapshot summaries and
-loads one full snapshot only when expanded. Resources are rendered through the
-generic `type`, `status`, `labels`, `attributes`, `metrics`, and relationship
-fields, so Docker, Compose, and Swarm do not require separate transport schemas.
+provider workspaces. Docker views cover hosts, containers, Compose, Swarm,
+images, volumes, storage usage, and networks. Proxmox views cover nodes,
+VM/LXC guests, storage, physical disks/SMART, and ZFS pools. WSL and Slurm keep
+their focused inventory views. All pages consume the same generic `type`,
+`status`, `labels`, `attributes`, `metrics`, and relationship fields rather
+than defining provider-specific transport schemas.
+
+Full snapshots may contain administrative inventory such as disk serials,
+container ports, IP addresses, and mount source paths. These details remain
+behind Komari administrator authentication; only aggregate counts are public.
 
 ## Limits and persistence
 
@@ -104,9 +111,9 @@ package, and plugin manifest versions match before creating the GitHub release.
 
 ## Status
 
-The resource schema and query UI are deliberately generic. Provider-specific
-views, binding management, alert rules, and migrations will be added after the
-snapshot contract is exercised by `komari-disky-agent`.
+The snapshot schema remains deliberately generic while the bundled page adds
+provider-specific views. Binding management, alert rules, actions, and metric
+history beyond Komari's native host metrics remain future work.
 
 ## License and attribution
 
