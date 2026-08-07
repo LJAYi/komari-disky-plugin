@@ -171,7 +171,8 @@
       const state = {
         summaries: [], offset: 0, total: 0, loading: false,
         clientNames: new Map(), clients: new Map(), expanded: new Map(),
-        fullSnapshots: new Map(), view: "overview", providerView: "docker", statusFilter: "all", grouped: true
+        clientStatus: new Map(), fullSnapshots: new Map(), tableExpanded: new Set(),
+        view: "overview", providerView: "docker", statusFilter: "all", grouped: true
       };
       const overviewLabels = {
         clients: "设备", providers: "Provider", snapshots: "快照",
@@ -232,6 +233,15 @@
         const nodes = Array.isArray(result.data) ? result.data : [];
         state.clients = new Map(nodes.map((node) => [node.uuid, node]));
         state.clientNames = new Map(nodes.map((node) => [node.uuid, node.name || node.uuid]));
+        if (!nodes.length) { state.clientStatus = new Map(); return; }
+        const query = new URLSearchParams({ uuids: nodes.map((node) => node.uuid).join(",") });
+        try {
+          const latest = await requestJSON(`/api/disky/v1/client-status?${query}`);
+          state.clientStatus = new Map(Object.entries(latest.data || {}));
+        } catch (error) {
+          if (error.status !== 401 && error.status !== 403) throw error;
+          state.clientStatus = new Map();
+        }
       }
 
       async function loadSummaries(reset) {
@@ -316,7 +326,7 @@
         if (dockerSnapshots.length && (state.view === "overview" || state.view === "containers")) {
           overview.className = "overview pulse-overview";
           overview.replaceChildren(dockerHostsTable(dockerSnapshots));
-        } else if (!dockerSnapshots.length && state.overview) {
+        } else if (state.providerView === "docker" && !dockerSnapshots.length && state.overview) {
           overview.className = "overview";
           overview.replaceChildren(...Object.entries(overviewLabels).map(([key, label]) => metricCard(state.overview[key] || 0, label)));
         } else {
@@ -338,41 +348,40 @@
         const nodes = []; const guests = []; const storage = []; const disks = []; const pools = [];
         for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
           const attrs = resource.attributes || {};
-          if (resource.type === "proxmox.node") nodes.push([
-            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.os || "Proxmox VE"), textCell(attrs.version || "—"),
-            textCell(attrs.cpu_model || "—"), numberCell(attrs.cpu_sockets ?? "—"), numberCell(attrs.cpu_cores ?? "—"), statusCell(resource.status), resourceDetailCell(resource)
-          ]);
-          if (resource.type === "proxmox.qemu" || resource.type === "proxmox.lxc") guests.push([
-            statusNameCell(resource.name || resource.id, resource.status), textCell(resource.type === "proxmox.qemu" ? "VM" : "LXC"),
-            textCell(attrs.node || "—"), numberCell(attrs.vmid ?? "—"), textCell(attrs.os || "—", attrs.architecture || ""),
-            percentCell(resource.metrics?.["cpu.ratio"]), bytesCell(resource.metrics?.["memory.used_bytes"], attrs.max_memory_bytes),
-            statusCell(resource.status), resourceDetailCell(resource)
-          ]);
-          if (resource.type === "proxmox.storage") storage.push([
-            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"), textCell(attrs.storage_type || "—"),
-            textCell(arrayText(attrs.content)), bytesCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
-            percentValueCell(resource.metrics?.["capacity.used_percent"]), textCell(attrs.shared ? "Shared" : "Local"), statusCell(resource.status), resourceDetailCell(resource)
-          ]);
-          if (resource.type === "proxmox.physical_disk") disks.push([
-            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"), textCell(attrs.device || "—"),
+          const key = `proxmox:${snapshot.source_client_uuid}:${resource.id}`;
+          if (resource.type === "proxmox.node") nodes.push(expandableResourceRow(resource, [
+            textCell(attrs.os || "Proxmox VE"), textCell(attrs.version || "—"), textCell(attrs.cpu_model || "—"),
+            numberCell(attrs.cpu_sockets ?? "—"), numberCell(attrs.cpu_cores ?? "—"), statusCell(resource.status)
+          ], key));
+          if (resource.type === "proxmox.qemu" || resource.type === "proxmox.lxc") guests.push(expandableResourceRow(resource, [
+            textCell(resource.type === "proxmox.qemu" ? "VM" : "LXC"), textCell(attrs.node || "—"), numberCell(attrs.vmid ?? "—"),
+            textCell(attrs.os || "—", attrs.architecture || ""), percentCell(resource.metrics?.["cpu.ratio"]),
+            bytesCell(resource.metrics?.["memory.used_bytes"], attrs.max_memory_bytes), statusCell(resource.status)
+          ], key));
+          if (resource.type === "proxmox.storage") storage.push(expandableResourceRow(resource, [
+            textCell(attrs.node || "—"), textCell(attrs.storage_type || "—"), textCell(arrayText(attrs.content)),
+            usageBarCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
+            textCell(attrs.shared ? "Shared" : "Local"), statusCell(resource.status)
+          ], key));
+          if (resource.type === "proxmox.physical_disk") disks.push(expandableResourceRow(resource, [
+            textCell(attrs.node || "—"), textCell(attrs.device || "—"),
             textCell([attrs.vendor, attrs.model].filter(Boolean).join(" ") || "—", attrs.serial || attrs.wwn || ""),
             textCell(attrs.media_type || "—"), textCell(formatBytes(resource.metrics?.["size.bytes"])), textCell(attrs.used_by || "—"),
-            textCell(formatWear(attrs.wearout)), textCell(attrs.smart_health || attrs.health || "—"), resourceDetailCell(resource)
-          ]);
-          if (resource.type === "proxmox.zfs_pool") pools.push([
-            statusNameCell(resource.name || resource.id, resource.status), textCell(attrs.node || "—"),
-            bytesCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
-            percentValueCell(resource.metrics?.["capacity.used_percent"]), percentValueCell(resource.metrics?.["fragmentation.percent"]),
+            textCell(formatWear(attrs.wearout)), textCell(attrs.smart_health || attrs.health || "—")
+          ], key));
+          if (resource.type === "proxmox.zfs_pool") pools.push(expandableResourceRow(resource, [
+            textCell(attrs.node || "—"), usageBarCell(resource.metrics?.["capacity.used_bytes"], resource.metrics?.["capacity.total_bytes"]),
+            percentValueCell(resource.metrics?.["fragmentation.percent"]),
             textCell(Number.isFinite(Number(resource.metrics?.["dedup.ratio"])) ? `${Number(resource.metrics["dedup.ratio"]).toFixed(2)}×` : "—"),
-            textCell(attrs.health || resource.status || "—"), resourceDetailCell(resource)
-          ]);
+            textCell(attrs.health || resource.status || "—")
+          ], key));
         }
         const root = element("div", "pulse-workspace");
         root.append(pulseTablePanel("Proxmox Nodes", nodes.length, ["Node", "System", "Version", "CPU", "Sockets", "Cores", "State", "Details"], nodes, "proxmox-nodes"));
         root.append(pulseTablePanel("VM & LXC", guests.length, ["Guest", "Type", "Node", "VMID", "System", "CPU", "Memory", "State", "Details"], guests, "proxmox-guests"));
-        root.append(pulseTablePanel("Storage", storage.length, ["Storage", "Node", "Type", "Content", "Capacity", "Used", "Scope", "State", "Details"], storage, "proxmox-storage"));
+        root.append(pulseTablePanel("Storage", storage.length, ["Storage", "Node", "Type", "Content", "Capacity", "Scope", "State", "Details"], storage, "proxmox-storage"));
         root.append(pulseTablePanel("Physical Disks & SMART", disks.length, ["Disk", "Node", "Device", "Model / Serial", "Media", "Size", "Used by", "Wear", "SMART", "Details"], disks, "proxmox-disks"));
-        root.append(pulseTablePanel("ZFS Pools", pools.length, ["Pool", "Node", "Capacity", "Used", "Fragmentation", "Dedup", "Health", "Details"], pools, "proxmox-zfs"));
+        root.append(pulseTablePanel("ZFS Pools", pools.length, ["Pool", "Node", "Capacity", "Fragmentation", "Dedup", "Health", "Details"], pools, "proxmox-zfs"));
         return root;
       }
 
@@ -479,21 +488,21 @@
           const engine = resources.find((item) => item.type === "docker.engine") || {};
           const attrs = engine.attributes || {};
           const client = state.clients.get(snapshot.source_client_uuid) || {};
+          const latest = state.clientStatus.get(snapshot.source_client_uuid) || {};
           const containers = resources.filter((item) => item.type === "docker.container").length;
-          const projects = resources.filter((item) => item.type === "docker.compose.project").length;
           const nodes = resources.filter((item) => item.type === "docker.swarm.node");
-          const services = resources.filter((item) => item.type === "docker.swarm.service").length;
-          return [
+          const role = nodes.find((item) => item.attributes?.self)?.attributes?.role || nodes[0]?.attributes?.role || "—";
+          const cells = [
             hostNameCell(state.clientNames.get(snapshot.source_client_uuid) || engine.name || snapshot.source_client_uuid, engine.status),
             textCell(attrs.operating_system || client.os || "—", attrs.architecture || client.arch || ""),
             textCell(attrs.server_version || "—"),
-            numberCell(containers), numberCell(projects),
-            textCell(nodes.length ? `${nodes.length} nodes / ${services} services` : "—"),
-            statusCell(engine.status || (snapshot.stale ? "stale" : "running")),
-            textCell(formatRelative(snapshot.received_at))
+            numberCell(containers), metricBarCell(latest.cpu, 100, "percent"),
+            usageBarCell(latest.ram, latest.ram_total), usageBarCell(latest.disk, latest.disk_total),
+            textCell(formatDuration(latest.uptime)), temperatureCell(latest.temp), textCell(role)
           ];
-        }).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
-        return pulseTablePanel("Hosts", rows.length, ["Host", "System", "Version", "Containers", "Compose", "Swarm", "State", "Updated"], rows, "hosts");
+          return expandableRow(cells, hostDetailPanel(snapshot, engine, client, latest), `host:${snapshot.source_client_uuid}`);
+        }).sort((a, b) => a.cells[0].textContent.localeCompare(b.cells[0].textContent));
+        return pulseTablePanel("Hosts", rows.length, ["Host", "System", "Version", "Containers", "CPU", "Memory", "Disk", "Uptime", "Temp", "Swarm Role"], rows, "hosts");
       }
 
       function containerTable(snapshots, needle) {
@@ -509,20 +518,20 @@
             const swarm = context.swarm.get(resource.id);
             const text = [resource.name, attrs.image, resource.status, host, compose?.project, compose?.service, swarm?.service].join(" ").toLowerCase();
             if ((needle && !text.includes(needle)) || !matchesStatusFilter(resource.status)) return null;
-            const orchestration = compose ? `${compose.project} / ${compose.service}` : swarm ? `Swarm / ${swarm.service}` : "Standalone";
             const metrics = resource.metrics || {};
-            const health = attrs.health || resource.status;
-            return [
+            const cells = [
               statusNameCell(resource.name || resource.id, resource.status),
-              textCell(host), textCell(shortImage(attrs.image || "—")), percentValueCell(metrics["cpu.percent"]),
-              bytesCell(metrics["memory.used_bytes"], metrics["memory.limit_bytes"]), textCell(health || "—"),
+              textCell(host), textCell(shortImage(attrs.image || "—")), statusCell(attrs.health || resource.status),
+              metricBarCell(metrics["cpu.percent"], 100, "percent"), usageBarCell(metrics["memory.used_bytes"], metrics["memory.limit_bytes"]),
               textCell(formatPorts(attrs.ports)), textCell(formatNetworks(attrs.networks)), textCell(formatMounts(attrs.mounts)),
-              textCell(orchestration, runtime), statusCell(resource.status), resourceDetailCell(resource)
+              detailButtonCell()
             ];
-          }).filter(Boolean).sort((a, b) => a[0].textContent.localeCompare(b[0].textContent));
+            return expandableRow(cells, containerDetailPanel(resource, { host, compose, swarm, runtime }), `container:${snapshot.source_client_uuid}:${resource.id}`);
+          }).filter(Boolean);
           if (rows.length) groups.push({ host, rows });
         }
-        const headers = ["Container", "Host", "Image", "CPU", "Memory", "Health", "Ports", "Networks", "Mounts", "Workload", "State", "Details"];
+        for (const group of groups) group.rows.sort((a, b) => a.cells[0].textContent.localeCompare(b.cells[0].textContent));
+        const headers = ["Container", "Host", "Image", "State", "CPU", "Memory", "Ports", "Networks", "Mounts", "Details"];
         const count = groups.reduce((sum, group) => sum + group.rows.length, 0);
         return state.grouped ? groupedTablePanel("Containers", count, headers, groups, "containers") : pulseTablePanel("Containers", count, headers, groups.flatMap((group) => group.rows), "containers");
       }
@@ -677,6 +686,120 @@
         return version ? `docker ${version}` : "docker";
       }
 
+      function expandableRow(cells, detail, key) { return { cells, detail, key }; }
+
+      function expandableResourceRow(resource, cells, key) {
+        return expandableRow([
+          hostNameCell(resource.name || resource.id, resource.status), ...cells, detailButtonCell()
+        ], genericResourceDetailPanel(resource), key);
+      }
+
+      function detailButtonCell() {
+        const td = document.createElement("td");
+        const button = element("button", "row-detail-button");
+        button.type = "button"; button.textContent = "View";
+        td.append(button); return td;
+      }
+
+      function metricBarCell(value, total = 100, mode = "percent") {
+        const numeric = Number(value); const maximum = Number(total);
+        const percent = Number.isFinite(numeric) && Number.isFinite(maximum) && maximum > 0
+          ? Math.max(0, Math.min(100, mode === "percent" ? numeric : numeric / maximum * 100)) : null;
+        const td = document.createElement("td"); const wrap = element("div", "usage-cell");
+        const label = element("span", "usage-label"); label.textContent = percent === null ? "—" : `${percent.toFixed(percent < 10 ? 1 : 0)}%`;
+        const track = element("span", "usage-track"); const fill = element("span", "usage-fill");
+        fill.style.width = `${percent || 0}%`; if (percent !== null && percent >= 90) fill.classList.add("bad"); else if (percent !== null && percent >= 75) fill.classList.add("warn");
+        track.append(fill); wrap.append(label, track); td.append(wrap); return td;
+      }
+
+      function usageBarCell(used, total) {
+        const td = metricBarCell(used, total, "ratio");
+        const label = td.querySelector(".usage-label");
+        if (label && Number.isFinite(Number(used)) && Number(total) > 0) label.title = `${formatBytes(Number(used))} / ${formatBytes(Number(total))}`;
+        return td;
+      }
+
+      function temperatureCell(value) {
+        const temperatures = Array.isArray(value) ? value.map(Number).filter(Number.isFinite) : [Number(value)].filter(Number.isFinite);
+        return textCell(temperatures.length ? `${Math.max(...temperatures).toFixed(0)}°C` : "—");
+      }
+
+      function formatDuration(value) {
+        let seconds = Number(value); if (!Number.isFinite(seconds) || seconds < 0) return "—";
+        const days = Math.floor(seconds / 86400); seconds %= 86400;
+        const hours = Math.floor(seconds / 3600); const minutes = Math.floor(seconds % 3600 / 60);
+        return days ? `${days}d ${hours}h` : hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+      }
+
+      function hostDetailPanel(snapshot, engine, client, latest) {
+        const attrs = engine.attributes || {}; const resources = snapshot.resources || [];
+        const containers = resources.filter((item) => item.type === "docker.container");
+        const running = containers.filter((item) => statusKind(item.status) === "good").length;
+        const volumes = resources.filter((item) => item.type === "docker.volume").length;
+        const images = resources.filter((item) => item.type === "docker.image").length;
+        return detailSurface([
+          ["System", [
+            ["Operating system", attrs.operating_system || client.os], ["Architecture", attrs.architecture || client.arch],
+            ["CPU", client.cpu_name], ["CPU cores", client.cpu_cores]
+          ]],
+          ["Runtime", [["Docker version", attrs.server_version], ["Storage driver", attrs.storage_driver], ["Swarm", attrs.swarm_state || "inactive"]]],
+          ["Containers", [["Running", running], ["Total", containers.length], ["Images", images], ["Volumes", volumes]]],
+          ["Memory", [["Used", formatBytes(Number(latest.ram))], ["Total", formatBytes(Number(latest.ram_total))]]],
+          ["Storage", [["Used", formatBytes(Number(latest.disk))], ["Total", formatBytes(Number(latest.disk_total))]]],
+          ["Telemetry", [["CPU", Number.isFinite(Number(latest.cpu)) ? `${Number(latest.cpu).toFixed(1)}%` : "—"], ["Uptime", formatDuration(latest.uptime)], ["Updated", formatRelative(snapshot.received_at)]]]
+        ]);
+      }
+
+      function containerDetailPanel(resource, context) {
+        const attrs = resource.attributes || {}; const metrics = resource.metrics || {};
+        const workload = context.compose ? `${context.compose.project} / ${context.compose.service}` : context.swarm ? `Swarm / ${context.swarm.service}` : "Standalone";
+        const sections = [
+          ["Runtime", [["Host", context.host], ["Image", attrs.image], ["Runtime", context.runtime], ["State", resource.status], ["Workload", workload]]],
+          ["Health", [["Status", attrs.health || resource.status], ["Restart count", attrs.restart_count ?? "—"], ["Created", formatCreated(attrs.created)]]],
+          ["Metrics", [["CPU", Number.isFinite(Number(metrics["cpu.percent"])) ? `${Number(metrics["cpu.percent"]).toFixed(1)}%` : "—"], ["Memory", `${formatBytes(Number(metrics["memory.used_bytes"]))} / ${formatBytes(Number(metrics["memory.limit_bytes"]))}`]]],
+          ["Ports", [["Published", formatPorts(attrs.ports)]]], ["Networks", [["Attached", formatNetworks(attrs.networks)]]],
+          ["Mounts", [["Attached", formatMounts(attrs.mounts)]]]
+        ];
+        const surface = detailSurface(sections);
+        const raw = document.createElement("details"); raw.className = "raw inline-raw";
+        const summary = document.createElement("summary"); summary.textContent = "Raw resource data";
+        const pre = document.createElement("pre"); pre.textContent = JSON.stringify({ labels: resource.labels || {}, attributes: attrs, metrics }, null, 2);
+        raw.append(summary, pre); surface.append(raw); return surface;
+      }
+
+      function genericResourceDetailPanel(resource) {
+        const formatEntries = (value) => Object.entries(value || {}).map(([key, item]) => [friendlyKey(key), displayValue(item, key)]);
+        const sections = [
+          ["Identity", [["Resource ID", resource.id], ["Type", friendlyType(resource.type)], ["State", resource.status]]],
+          ["Attributes", formatEntries(resource.attributes)], ["Metrics", formatEntries(resource.metrics)]
+        ];
+        if (Object.keys(resource.labels || {}).length) sections.push(["Labels", formatEntries(resource.labels)]);
+        return detailSurface(sections.filter(([, entries]) => entries.length));
+      }
+
+      function friendlyKey(value) { return String(value).replace(/[._]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
+      function displayValue(value, key = "") {
+        if (typeof value === "number" && /bytes?/i.test(key)) return formatBytes(value);
+        if (typeof value === "number" && /percent/i.test(key)) return `${value.toFixed(value < 10 ? 1 : 0)}%`;
+        if (Array.isArray(value)) return value.map((item) => typeof item === "object" ? JSON.stringify(item) : String(item)).join(", ") || "—";
+        if (value && typeof value === "object") return JSON.stringify(value);
+        if (typeof value === "boolean") return value ? "Yes" : "No";
+        return value;
+      }
+
+      function detailSurface(sections) {
+        const surface = element("div", "inline-detail-surface");
+        for (const [title, entries] of sections) {
+          const panel = element("section", "inline-detail-panel"); const heading = document.createElement("h4"); heading.textContent = title;
+          const list = element("dl", "key-value-list");
+          for (const [label, value] of entries) {
+            const dt = document.createElement("dt"); dt.textContent = label; const dd = document.createElement("dd"); dd.textContent = value === undefined || value === null || value === "" ? "—" : String(value); list.append(dt, dd);
+          }
+          panel.append(heading, list); surface.append(panel);
+        }
+        return surface;
+      }
+
       function pulseTablePanel(title, count, headers, rows, kind = "") {
         const panel = element("section", `pulse-table-panel${kind ? ` ${kind}` : ""}`);
         const heading = element("div", "pulse-table-title");
@@ -688,8 +811,23 @@
         const thead = document.createElement("thead"); const headRow = document.createElement("tr");
         headers.forEach((label) => { const th = document.createElement("th"); th.textContent = label; headRow.append(th); });
         thead.append(headRow); const tbody = document.createElement("tbody");
-        rows.forEach((cells) => { const tr = document.createElement("tr"); tr.append(...cells); tbody.append(tr); });
+        rows.forEach((row) => appendPulseRow(tbody, row, headers.length));
         table.append(thead, tbody); wrap.append(table); panel.append(heading, wrap); return panel;
+      }
+
+      function appendPulseRow(tbody, row, columnCount) {
+        const model = Array.isArray(row) ? { cells: row } : row;
+        const tr = document.createElement("tr"); tr.append(...model.cells); tbody.append(tr);
+        if (!model.detail) return;
+        tr.classList.add("expandable-row");
+        const detailRow = element("tr", "inline-detail-row"); const td = document.createElement("td"); td.colSpan = columnCount; td.append(model.detail); detailRow.append(td);
+        const open = state.tableExpanded.has(model.key); detailRow.classList.toggle("hidden", !open); tr.classList.toggle("expanded", open); tbody.append(detailRow);
+        const toggle = () => {
+          const next = detailRow.classList.contains("hidden"); detailRow.classList.toggle("hidden", !next); tr.classList.toggle("expanded", next);
+          if (next) state.tableExpanded.add(model.key); else state.tableExpanded.delete(model.key);
+        };
+        const chevron = tr.querySelector(".row-chevron"); if (chevron) { chevron.setAttribute("role", "button"); chevron.tabIndex = 0; chevron.addEventListener("click", toggle); chevron.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } }); }
+        const button = tr.querySelector(".row-detail-button"); if (button) button.addEventListener("click", toggle);
       }
 
       function groupedTablePanel(title, count, headers, groups, kind = "") {
@@ -700,7 +838,7 @@
           const strong = document.createElement("strong"); strong.textContent = group.host;
           const span = element("span"); span.textContent = `${group.rows.length} ${title.toLowerCase()}`;
           td.append(strong, span); groupRow.append(td); tbody.append(groupRow);
-          group.rows.forEach((cells) => { const tr = document.createElement("tr"); tr.append(...cells); tbody.append(tr); });
+          group.rows.forEach((row) => appendPulseRow(tbody, row, headers.length));
         }
         return panel;
       }

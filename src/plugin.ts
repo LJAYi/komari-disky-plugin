@@ -17,6 +17,7 @@ definePlugin({
 
     server.route("POST", "/api/disky/v1/snapshots", receiveSnapshot);
     server.route("GET", "/api/disky/v1/snapshots", listSnapshots);
+    server.route("GET", "/api/disky/v1/client-status", clientStatus);
     server.route("GET", "/api/disky/v1/overview", (_request, response) => {
       noStore(response);
       jsonResponse(response, { ok: true, data: registry.overview() });
@@ -85,6 +86,30 @@ async function receiveSnapshot(request: PluginRequest, response: PluginResponse)
     }
     console.error(`disky: snapshot ingest failed: ${errorMessage(error)}`);
     jsonResponse(response, { ok: false, error: "snapshot ingest failed" }, 500);
+  }
+}
+
+async function clientStatus(request: PluginRequest, response: PluginResponse): Promise<void> {
+  noStore(response);
+  if (!isAdmin(request)) {
+    jsonResponse(response, { ok: false, error: "administrator authentication required" }, 401);
+    return;
+  }
+  const raw = request.query.uuids || "";
+  const uuids = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (uuids.length > 200 || uuids.some((value) => optionalIdentifierQuery(value) !== value)) {
+    jsonResponse(response, { ok: false, error: "invalid client UUID list" }, 400);
+    return;
+  }
+  try {
+    const data = await server.call<Record<string, unknown>>(
+      "common:getNodesLatestStatus",
+      uuids.length ? { uuids } : {},
+    );
+    jsonResponse(response, { ok: true, data });
+  } catch (error) {
+    console.error(`disky: latest client status query failed: ${errorMessage(error)}`);
+    jsonResponse(response, { ok: false, error: "latest client status query failed" }, 502);
   }
 }
 
