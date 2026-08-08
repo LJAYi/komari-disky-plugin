@@ -10,7 +10,7 @@
     "en": "Receives and presents resource snapshots and topology from Komari Disky Agent."
   },
   "author": "Komari Disky contributors",
-  "version": "0.1.0-rc.7",
+  "version": "0.1.0-rc.8",
   "komari": ">=1.4.0",
   "entry": "script.js",
   "permissions": {
