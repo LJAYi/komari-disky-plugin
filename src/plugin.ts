@@ -17,6 +17,8 @@ definePlugin({
 
     server.route("POST", "/api/disky/v1/snapshots", receiveSnapshot);
     server.route("GET", "/api/disky/v1/snapshots", listSnapshots);
+    server.route("GET", "/api/disky/v1/client-status", clientStatus);
+    server.route("GET", "/api/disky/v1/health", healthSummary);
     server.route("GET", "/api/disky/v1/overview", (_request, response) => {
       noStore(response);
       jsonResponse(response, { ok: true, data: registry.overview() });
@@ -86,6 +88,82 @@ async function receiveSnapshot(request: PluginRequest, response: PluginResponse)
     console.error(`disky: snapshot ingest failed: ${errorMessage(error)}`);
     jsonResponse(response, { ok: false, error: "snapshot ingest failed" }, 500);
   }
+}
+
+function healthSummary(request: PluginRequest, response: PluginResponse): void {
+  noStore(response);
+  if (!isAdmin(request)) {
+    jsonResponse(response, { ok: false, error: "administrator authentication required" }, 401);
+    return;
+  }
+  jsonResponse(response, { ok: true, data: registry.health() });
+}
+
+async function clientStatus(request: PluginRequest, response: PluginResponse): Promise<void> {
+  noStore(response);
+  if (!isAdmin(request)) {
+    jsonResponse(response, { ok: false, error: "administrator authentication required" }, 401);
+    return;
+  }
+  const raw = request.query.uuids || "";
+  const uuids = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (uuids.length > 200 || uuids.some((value) => optionalIdentifierQuery(value) !== value)) {
+    jsonResponse(response, { ok: false, error: "invalid client UUID list" }, 400);
+    return;
+  }
+  try {
+    const data = await server.call<Record<string, unknown>>(
+      "common:getNodesLatestStatus",
+      uuids.length ? { uuids } : {},
+    );
+    jsonResponse(response, { ok: true, data: normalizeLatestStatuses(data) });
+  } catch (error) {
+    console.error(`disky: latest client status query failed: ${errorMessage(error)}`);
+    jsonResponse(response, { ok: false, error: "latest client status query failed" }, 502);
+  }
+}
+
+const LATEST_STATUS_FIELDS = {
+  Client: "client",
+  Time: "time",
+  Cpu: "cpu",
+  Gpu: "gpu",
+  Ram: "ram",
+  RamTotal: "ram_total",
+  Swap: "swap",
+  SwapTotal: "swap_total",
+  Load: "load",
+  Load5: "load5",
+  Load15: "load15",
+  Temp: "temp",
+  Disk: "disk",
+  DiskTotal: "disk_total",
+  Disks: "disks",
+  NetIn: "net_in",
+  NetOut: "net_out",
+  NetTotalUp: "net_total_up",
+  NetTotalDown: "net_total_down",
+  Process: "process",
+  Connections: "connections",
+  ConnectionsUdp: "connections_udp",
+  Online: "online",
+  Uptime: "uptime",
+  Ping: "ping",
+  Extensions: "extensions",
+} as const;
+
+function normalizeLatestStatuses(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).map(([uuid, raw]) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [uuid, raw];
+    const source = raw as Record<string, unknown>;
+    const normalized = { ...source };
+    for (const [goName, jsonName] of Object.entries(LATEST_STATUS_FIELDS)) {
+      if (normalized[jsonName] === undefined && source[goName] !== undefined) {
+        normalized[jsonName] = source[goName];
+      }
+    }
+    return [uuid, normalized];
+  }));
 }
 
 function listSnapshots(request: PluginRequest, response: PluginResponse): void {

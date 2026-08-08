@@ -1,6 +1,6 @@
 {
   "name": "komari-disky-plugin",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.8",
   "private": true,
   "description": "Komari plugin for versioned resource snapshots and topology.",
   "license": "MIT",

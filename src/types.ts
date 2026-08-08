@@ -71,6 +71,28 @@ export interface SnapshotOverview {
   generated_at: string;
 }
 
+export type HealthSeverity = "warning" | "critical";
+
+export interface HealthIssue {
+  code: "snapshot_stale" | "provider_missing" | "smart_failed" | "storage_pressure" | "swarm_replicas";
+  severity: HealthSeverity;
+  source_client_uuid: string;
+  provider: string;
+  provider_instance: string;
+  resource_id?: string;
+  resource_name?: string;
+  message: string;
+  observed_at: string;
+}
+
+export interface HealthSummary {
+  status: "healthy" | "warning" | "critical";
+  warning: number;
+  critical: number;
+  issues: HealthIssue[];
+  generated_at: string;
+}
+
 export interface SnapshotSummary {
   source_client_uuid: string;
   provider: string;

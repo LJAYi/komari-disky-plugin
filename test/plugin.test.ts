@@ -8,6 +8,7 @@ import { validSnapshot } from "./helpers";
 const runtime = vi.hoisted(() => ({
   definition: undefined as { load?: () => unknown | Promise<unknown> } | undefined,
   routes: new Map<string, (request: PluginRequest, response: PluginResponse) => unknown>(),
+  call: vi.fn(),
 }));
 
 vi.mock("@komari-monitor/plugin-sdk", () => ({
@@ -28,6 +29,7 @@ vi.mock("@komari-monitor/plugin-sdk", () => ({
     registerRPC() {},
     cron() {},
     async getConfig() { return { default_ttl_seconds: 300 }; },
+    call: runtime.call,
   },
 }));
 
@@ -138,6 +140,67 @@ describe("snapshot HTTP route", () => {
   });
 });
 
+describe("client status HTTP route", () => {
+  it("requires an administrator", async () => {
+    const response = await getClientStatus("client-a", {});
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("returns the selected latest statuses through the system RPC", async () => {
+    runtime.call.mockResolvedValueOnce({ "client-a": { cpu: 12.5, online: true } });
+    const response = await getClientStatus("client-a,client-b", adminContext());
+    expect(response.statusCode).toBe(200);
+    expect(runtime.call).toHaveBeenCalledWith("common:getNodesLatestStatus", { uuids: ["client-a", "client-b"] });
+    expect(JSON.parse(response.body).data["client-a"].cpu).toBe(12.5);
+  });
+
+  it("normalizes Komari 1.4 Go field names for the public page", async () => {
+    runtime.call.mockResolvedValueOnce({
+      "client-a": {
+        Client: "client-a",
+        Cpu: 12.5,
+        Ram: 1024,
+        RamTotal: 4096,
+        Disk: 2048,
+        DiskTotal: 8192,
+        Uptime: 3600,
+        Temp: 48,
+        Online: true,
+      },
+    });
+    const response = await getClientStatus("client-a", adminContext());
+    const latest = JSON.parse(response.body).data["client-a"];
+    expect(latest).toMatchObject({
+      client: "client-a",
+      cpu: 12.5,
+      ram: 1024,
+      ram_total: 4096,
+      disk: 2048,
+      disk_total: 8192,
+      uptime: 3600,
+      temp: 48,
+      online: true,
+    });
+  });
+
+  it("preserves canonical JSON fields when both shapes are present", async () => {
+    runtime.call.mockResolvedValueOnce({
+      "client-a": { Cpu: 99, cpu: 12.5, RamTotal: 4096, ram_total: 2048 },
+    });
+    const response = await getClientStatus("client-a", adminContext());
+    expect(JSON.parse(response.body).data["client-a"]).toMatchObject({ cpu: 12.5, ram_total: 2048 });
+  });
+});
+
+describe("health summary HTTP route", () => {
+  it("is restricted to administrators", async () => {
+    expect((await getHealth({})).statusCode).toBe(401);
+    const response = await getHealth(adminContext());
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).data).toMatchObject({ status: expect.any(String) });
+  });
+});
+
 function agentContext(clientUUID: string): PluginRequest["context"] {
   return {
     principal: { type: "agent", client_uuid: clientUUID, roles: ["client"] },
@@ -180,6 +243,39 @@ async function getSnapshots(
     url: "/api/disky/v1/snapshots",
     headers: {},
     query,
+    body: "",
+    context,
+  }, response);
+  return response;
+}
+
+async function getClientStatus(
+  uuids: string,
+  context: PluginRequest["context"],
+): Promise<ResponseCapture> {
+  const handler = runtime.routes.get("GET /api/disky/v1/client-status");
+  if (!handler) throw new Error("client status route was not registered");
+  const response = new ResponseCapture();
+  await handler({
+    method: "GET",
+    url: "/api/disky/v1/client-status",
+    headers: {},
+    query: { uuids },
+    body: "",
+    context,
+  }, response);
+  return response;
+}
+
+async function getHealth(context: PluginRequest["context"]): Promise<ResponseCapture> {
+  const handler = runtime.routes.get("GET /api/disky/v1/health");
+  if (!handler) throw new Error("health route was not registered");
+  const response = new ResponseCapture();
+  await handler({
+    method: "GET",
+    url: "/api/disky/v1/health",
+    headers: {},
+    query: {},
     body: "",
     context,
   }, response);
