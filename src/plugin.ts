@@ -106,11 +106,54 @@ async function clientStatus(request: PluginRequest, response: PluginResponse): P
       "common:getNodesLatestStatus",
       uuids.length ? { uuids } : {},
     );
-    jsonResponse(response, { ok: true, data });
+    jsonResponse(response, { ok: true, data: normalizeLatestStatuses(data) });
   } catch (error) {
     console.error(`disky: latest client status query failed: ${errorMessage(error)}`);
     jsonResponse(response, { ok: false, error: "latest client status query failed" }, 502);
   }
+}
+
+const LATEST_STATUS_FIELDS = {
+  Client: "client",
+  Time: "time",
+  Cpu: "cpu",
+  Gpu: "gpu",
+  Ram: "ram",
+  RamTotal: "ram_total",
+  Swap: "swap",
+  SwapTotal: "swap_total",
+  Load: "load",
+  Load5: "load5",
+  Load15: "load15",
+  Temp: "temp",
+  Disk: "disk",
+  DiskTotal: "disk_total",
+  Disks: "disks",
+  NetIn: "net_in",
+  NetOut: "net_out",
+  NetTotalUp: "net_total_up",
+  NetTotalDown: "net_total_down",
+  Process: "process",
+  Connections: "connections",
+  ConnectionsUdp: "connections_udp",
+  Online: "online",
+  Uptime: "uptime",
+  Ping: "ping",
+  Extensions: "extensions",
+} as const;
+
+function normalizeLatestStatuses(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).map(([uuid, raw]) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [uuid, raw];
+    const source = raw as Record<string, unknown>;
+    const normalized = { ...source };
+    for (const [goName, jsonName] of Object.entries(LATEST_STATUS_FIELDS)) {
+      if (normalized[jsonName] === undefined && source[goName] !== undefined) {
+        normalized[jsonName] = source[goName];
+      }
+    }
+    return [uuid, normalized];
+  }));
 }
 
 function listSnapshots(request: PluginRequest, response: PluginResponse): void {

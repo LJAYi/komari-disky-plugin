@@ -153,6 +153,43 @@ describe("client status HTTP route", () => {
     expect(runtime.call).toHaveBeenCalledWith("common:getNodesLatestStatus", { uuids: ["client-a", "client-b"] });
     expect(JSON.parse(response.body).data["client-a"].cpu).toBe(12.5);
   });
+
+  it("normalizes Komari 1.4 Go field names for the public page", async () => {
+    runtime.call.mockResolvedValueOnce({
+      "client-a": {
+        Client: "client-a",
+        Cpu: 12.5,
+        Ram: 1024,
+        RamTotal: 4096,
+        Disk: 2048,
+        DiskTotal: 8192,
+        Uptime: 3600,
+        Temp: 48,
+        Online: true,
+      },
+    });
+    const response = await getClientStatus("client-a", adminContext());
+    const latest = JSON.parse(response.body).data["client-a"];
+    expect(latest).toMatchObject({
+      client: "client-a",
+      cpu: 12.5,
+      ram: 1024,
+      ram_total: 4096,
+      disk: 2048,
+      disk_total: 8192,
+      uptime: 3600,
+      temp: 48,
+      online: true,
+    });
+  });
+
+  it("preserves canonical JSON fields when both shapes are present", async () => {
+    runtime.call.mockResolvedValueOnce({
+      "client-a": { Cpu: 99, cpu: 12.5, RamTotal: 4096, ram_total: 2048 },
+    });
+    const response = await getClientStatus("client-a", adminContext());
+    expect(JSON.parse(response.body).data["client-a"]).toMatchObject({ cpu: 12.5, ram_total: 2048 });
+  });
 });
 
 function agentContext(clientUUID: string): PluginRequest["context"] {
