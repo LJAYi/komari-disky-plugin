@@ -98,6 +98,7 @@
       <nav class="primary-nav" aria-label="资源类型">
         <button class="active" type="button" data-provider-view="docker" aria-current="page">Docker</button>
         <button type="button" data-provider-view="proxmox">Proxmox</button>
+        <button type="button" data-provider-view="nvidia">GPU</button>
         <button type="button" data-provider-view="windows_wsl">WSL</button>
         <button type="button" data-provider-view="slurm">Slurm</button>
       </nav>
@@ -379,9 +380,12 @@
         container.replaceChildren();
         if (dockerSnapshots.length) container.append(dockerPulseWorkspace(dockerSnapshots, needle));
         if (state.providerView === "proxmox" && fullSnapshots.length) container.append(proxmoxWorkspace(fullSnapshots));
+        if (state.providerView === "nvidia" && fullSnapshots.length) container.append(nvidiaWorkspace(fullSnapshots));
         if (state.providerView === "windows_wsl" && fullSnapshots.length) container.append(wslWorkspace(fullSnapshots));
         if (state.providerView === "slurm" && fullSnapshots.length) container.append(slurmWorkspace(fullSnapshots));
-        if (visible.length === 0) container.append(emptyState(state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
+        if (visible.length === 0) container.append(emptyState(state.providerView === "nvidia"
+          ? "暂无 NVIDIA GPU 快照。"
+          : state.summaries.length ? "没有符合筛选条件的快照。" : "暂无资源快照。"));
         const resourceCount = dockerSnapshots.reduce((sum, snapshot) => sum + (snapshot.resources?.length || 0), 0);
         document.querySelector("#resource-count").textContent = `${resourceCount} 个资源`;
         const containerCount = countVisibleContainers(dockerSnapshots, needle);
@@ -429,6 +433,31 @@
         return root;
       }
 
+      function nvidiaWorkspace(snapshots) {
+        const rows = [];
+        for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
+          if (resource.type !== "nvidia.gpu") continue;
+          const attrs = resource.attributes || {}; const metrics = resource.metrics || {};
+          const parent = externalParentLabel(snapshot, resource);
+          const host = parent !== "—" ? parent : state.clientNames.get(snapshot.source_client_uuid) || snapshot.source_client_uuid;
+          const powerDraw = metrics["power.draw_watts"]; const powerLimit = metrics["power.limit_watts"];
+          rows.push(expandableRow([
+            hostNameCell(resource.name || resource.id, resource.status), textCell(host),
+            textCell(attrs.uuid || "—", attrs.index !== undefined ? `Index ${attrs.index}` : ""),
+            textCell(attrs.driver_version || "—"), metricBarCell(metrics["utilization.percent"]),
+            usageBarCell(metrics["memory.used_bytes"], metrics["memory.total_bytes"]),
+            temperatureCell(metrics["temperature.celsius"]),
+            textCell(formatWatts(powerDraw), Number(powerLimit) > 0 ? `/ ${formatWatts(powerLimit)}` : ""),
+            detailButtonCell()
+          ], genericResourceDetailPanel(resource), `nvidia:${snapshot.source_client_uuid}:${resource.id}`));
+        }
+        if (!rows.length) return emptyState("已收到 NVIDIA Provider 快照，但未发现 GPU。");
+        rows.sort((a, b) => a.cells[1].textContent.localeCompare(b.cells[1].textContent) ||
+          a.cells[2].textContent.localeCompare(b.cells[2].textContent));
+        return pulseTablePanel("NVIDIA GPUs", rows.length,
+          ["Model", "Host", "UUID / Index", "Driver", "Utilization", "Memory", "Temp", "Power", "Details"], rows, "nvidia-gpus");
+      }
+
       function wslWorkspace(snapshots) {
         const rows = [];
         for (const snapshot of snapshots) for (const resource of snapshot.resources || []) {
@@ -473,6 +502,7 @@
       function percentValueCell(value) { return textCell(Number.isFinite(Number(value)) ? `${Number(value).toFixed(Number(value) < 10 ? 1 : 0)}%` : "—"); }
       function bytesCell(used, total) { return textCell(formatBytes(Number(used)), Number(total) > 0 ? `/ ${formatBytes(Number(total))}` : ""); }
       function formatBytes(value) { if (!Number.isFinite(value) || value < 0) return "—"; const units = ["B", "KiB", "MiB", "GiB", "TiB"]; let index = 0; while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; } return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`; }
+      function formatWatts(value) { const watts = Number(value); return Number.isFinite(watts) && watts >= 0 ? `${watts.toFixed(watts < 10 ? 1 : 0)} W` : "—"; }
       function arrayText(value) { return Array.isArray(value) ? value.join(", ") || "—" : String(value || "—"); }
       function formatWear(value) { if (value === undefined || value === null || value === "") return "—"; const text = String(value); return /^\d+(\.\d+)?$/.test(text) ? `${text}%` : text; }
 
@@ -1217,6 +1247,7 @@
           "proxmox.qemu": "Virtual Machine", "proxmox.lxc": "LXC Container",
           "proxmox.storage": "Proxmox Storage", "proxmox.physical_disk": "Physical Disk",
           "proxmox.zfs_pool": "ZFS Pool", "windows.wsl": "WSL Distribution",
+          "nvidia.gpu": "NVIDIA GPU",
           "slurm.cluster": "Slurm Cluster", "slurm.partition": "Slurm Partition", "slurm.job": "Slurm Job"
         };
         return labels[type] || type;

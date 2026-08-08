@@ -30,4 +30,16 @@ describe("provider workspaces", () => {
     expect(page).toContain('/api/disky/v1/health');
     expect(page).toContain("需要处理的资源问题");
   });
+
+  it("ships a dedicated NVIDIA GPU inventory view and empty state", () => {
+    expect(page).toContain('data-provider-view="nvidia"');
+    expect(page).toContain('resource.type !== "nvidia.gpu"');
+    for (const metric of [
+      "utilization.percent", "memory.used_bytes", "memory.total_bytes",
+      "temperature.celsius", "power.draw_watts", "power.limit_watts",
+    ]) expect(page).toContain(`metrics["${metric}"]`);
+    expect(page).toContain("UUID / Index");
+    expect(page).toContain("暂无 NVIDIA GPU 快照。");
+    expect(page).toContain("未发现 GPU");
+  });
 });
