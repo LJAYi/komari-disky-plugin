@@ -1,5 +1,7 @@
 import type {
   ApplyResult,
+  HealthIssue,
+  HealthSummary,
   ResourceSnapshotInput,
   SnapshotDatabase,
   SnapshotOverview,
@@ -136,6 +138,25 @@ export class SnapshotRegistry {
     };
   }
 
+  health(): HealthSummary {
+    const now = this.now();
+    const issues = Object.values(this.database.snapshots).flatMap((snapshot) =>
+      snapshotHealthIssues(snapshot, now),
+    ).sort((left, right) => severityRank(right.severity) - severityRank(left.severity) ||
+      left.source_client_uuid.localeCompare(right.source_client_uuid) ||
+      left.provider.localeCompare(right.provider) ||
+      (left.resource_name || left.resource_id || "").localeCompare(right.resource_name || right.resource_id || ""));
+    const warning = issues.filter((issue) => issue.severity === "warning").length;
+    const critical = issues.filter((issue) => issue.severity === "critical").length;
+    return {
+      status: critical > 0 ? "critical" : warning > 0 ? "warning" : "healthy",
+      warning,
+      critical,
+      issues,
+      generated_at: now.toISOString(),
+    };
+  }
+
   summaries(filter: Partial<SnapshotScope> = {}): SnapshotSummary[] {
     return this.list(filter).map((snapshot) => ({
       source_client_uuid: snapshot.source_client_uuid,
@@ -193,6 +214,92 @@ export class SnapshotRegistry {
   private persist(): void {
     this.store.save(this.database);
   }
+}
+
+function snapshotHealthIssues(snapshot: StoredSnapshot, now: Date): HealthIssue[] {
+  const issues: HealthIssue[] = [];
+  const nowMs = now.getTime();
+  const receivedMs = Date.parse(snapshot.received_at);
+  const expiresMs = Date.parse(snapshot.expires_at);
+  const scope = {
+    source_client_uuid: snapshot.source_client_uuid,
+    provider: snapshot.provider,
+    provider_instance: snapshot.provider_instance,
+  };
+  if (Number.isFinite(expiresMs) && expiresMs <= nowMs) {
+    const ttlMs = Math.max(0, expiresMs - receivedMs);
+    const longMissingAt = receivedMs + ttlMs * 3;
+    const longMissing = Number.isFinite(longMissingAt) && longMissingAt <= nowMs;
+    issues.push({
+      code: longMissing ? "provider_missing" : "snapshot_stale",
+      severity: longMissing ? "critical" : "warning",
+      ...scope,
+      message: longMissing ? "Provider 长期未上报" : "Snapshot 已过期",
+      observed_at: snapshot.received_at,
+    });
+    // Resource state in an expired full snapshot is no longer current. Report
+    // the provider outage without duplicating obsolete resource alerts.
+    return issues;
+  }
+
+  for (const resource of snapshot.resources) {
+    const attributes = resource.attributes || {};
+    const metrics = resource.metrics || {};
+    if (resource.type === "proxmox.physical_disk") {
+      const rawHealth = attributes.smart_health;
+      if (typeof rawHealth === "string" && smartHealthFailed(rawHealth)) {
+        issues.push(resourceIssue(scope, resource, "smart_failed", "critical",
+          `SMART 健康异常：${rawHealth}`, snapshot.collected_at));
+      }
+    }
+    if (resource.type === "proxmox.storage") {
+      const used = metrics["capacity.used_bytes"];
+      const total = metrics["capacity.total_bytes"];
+      if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
+        const percent = used / total * 100;
+        if (percent >= 90) {
+          issues.push(resourceIssue(scope, resource, "storage_pressure", percent >= 95 ? "critical" : "warning",
+            `PVE 存储已使用 ${percent.toFixed(1)}%`, snapshot.collected_at));
+        }
+      }
+    }
+    if (resource.type === "docker.swarm.service") {
+      const running = metrics["tasks.running"];
+      const desired = metrics["tasks.desired"];
+      if (Number.isFinite(running) && Number.isFinite(desired) && desired > 0 && running < desired) {
+        issues.push(resourceIssue(scope, resource, "swarm_replicas", running === 0 ? "critical" : "warning",
+          `Swarm 副本不足：${running}/${desired}`, snapshot.collected_at));
+      }
+    }
+  }
+  return issues;
+}
+
+function resourceIssue(
+  scope: Pick<HealthIssue, "source_client_uuid" | "provider" | "provider_instance">,
+  resource: StoredSnapshot["resources"][number],
+  code: HealthIssue["code"],
+  severity: HealthIssue["severity"],
+  message: string,
+  observedAt: string,
+): HealthIssue {
+  return {
+    code,
+    severity,
+    ...scope,
+    resource_id: resource.id,
+    ...(resource.name ? { resource_name: resource.name } : {}),
+    message,
+    observed_at: observedAt,
+  };
+}
+
+function smartHealthFailed(value: string): boolean {
+  return /^(failed?|bad|failing|critical|faulty|degraded)$/i.test(value.trim());
+}
+
+function severityRank(severity: HealthIssue["severity"]): number {
+  return severity === "critical" ? 2 : 1;
 }
 
 function countResourceTypes(resources: Array<{ type: string }>): Record<string, number> {

@@ -101,6 +101,51 @@ describe("SnapshotRegistry", () => {
     expect(registry.overview().clients).toBe(2);
     expect(registry.list()).toHaveLength(2);
   });
+
+  it("derives current resource health without persisting a second alert state", () => {
+    const registry = new SnapshotRegistry(new MemoryStore(), () => new Date("2026-08-03T00:00:00Z"));
+    registry.apply("client-a", parseSnapshotInput(validSnapshot({
+      ttl_seconds: 60,
+      resources: [
+        {
+          id: "disk-a", type: "proxmox.physical_disk", name: "sda",
+          attributes: { smart_health: "FAILED" },
+        },
+        {
+          id: "storage-a", type: "proxmox.storage", name: "local-zfs",
+          metrics: { "capacity.used_bytes": 92, "capacity.total_bytes": 100 },
+        },
+        {
+          id: "service-a", type: "docker.swarm.service", name: "api",
+          metrics: { "tasks.running": 1, "tasks.desired": 2 },
+        },
+      ],
+    })), 300);
+
+    expect(registry.health()).toMatchObject({ status: "critical", critical: 1, warning: 2 });
+    expect(registry.health().issues.map((issue) => issue.code)).toEqual([
+      "smart_failed", "swarm_replicas", "storage_pressure",
+    ]);
+  });
+
+  it("promotes an expired snapshot to a missing provider and suppresses obsolete resource alerts", () => {
+    let now = new Date("2026-08-03T00:00:00Z");
+    const registry = new SnapshotRegistry(new MemoryStore(), () => now);
+    registry.apply("client-a", parseSnapshotInput(validSnapshot({
+      ttl_seconds: 60,
+      resources: [{
+        id: "disk-a", type: "proxmox.physical_disk", name: "sda",
+        attributes: { smart_health: "FAILED" },
+      }],
+    })), 300);
+
+    now = new Date("2026-08-03T00:01:01Z");
+    expect(registry.health()).toMatchObject({ status: "warning", warning: 1, critical: 0 });
+    expect(registry.health().issues[0].code).toBe("snapshot_stale");
+    now = new Date("2026-08-03T00:03:01Z");
+    expect(registry.health()).toMatchObject({ status: "critical", warning: 0, critical: 1 });
+    expect(registry.health().issues[0].code).toBe("provider_missing");
+  });
 });
 
 function expectRejection(action: () => unknown, reason: string): void {

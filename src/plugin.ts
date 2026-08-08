@@ -18,6 +18,7 @@ definePlugin({
     server.route("POST", "/api/disky/v1/snapshots", receiveSnapshot);
     server.route("GET", "/api/disky/v1/snapshots", listSnapshots);
     server.route("GET", "/api/disky/v1/client-status", clientStatus);
+    server.route("GET", "/api/disky/v1/health", healthSummary);
     server.route("GET", "/api/disky/v1/overview", (_request, response) => {
       noStore(response);
       jsonResponse(response, { ok: true, data: registry.overview() });
@@ -87,6 +88,15 @@ async function receiveSnapshot(request: PluginRequest, response: PluginResponse)
     console.error(`disky: snapshot ingest failed: ${errorMessage(error)}`);
     jsonResponse(response, { ok: false, error: "snapshot ingest failed" }, 500);
   }
+}
+
+function healthSummary(request: PluginRequest, response: PluginResponse): void {
+  noStore(response);
+  if (!isAdmin(request)) {
+    jsonResponse(response, { ok: false, error: "administrator authentication required" }, 401);
+    return;
+  }
+  jsonResponse(response, { ok: true, data: registry.health() });
 }
 
 async function clientStatus(request: PluginRequest, response: PluginResponse): Promise<void> {

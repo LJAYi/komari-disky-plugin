@@ -44,6 +44,7 @@ after TTL cleanup.
 | `POST` | `/api/disky/v1/snapshots?token=...` | Komari Agent token | Submit a full snapshot (`201`, duplicate `200`) |
 | `GET` | `/api/disky/v1/snapshots?view=summary` | Admin session/API key | Query paginated snapshot summaries |
 | `GET` | `/api/disky/v1/snapshots?view=full&client_uuid=...&provider=...&provider_instance=...` | Admin session/API key | Query one exact snapshot |
+| `GET` | `/api/disky/v1/health` | Admin session/API key | Query derived provider and resource health issues |
 | `GET` | `/api/disky/v1/overview` | Public | Query aggregate counts only |
 | RPC | `plugin:disky.getOverview` | Public-safe | Query aggregate counts only |
 
@@ -79,6 +80,10 @@ behind Komari administrator authentication; only aggregate counts are public.
 - TTL: 30 seconds to 24 hours, with a configurable 300-second default;
 - attributes and metrics have count, depth, key, string, and finite-number checks;
 - expired snapshots are marked stale and remain queryable for seven days;
+- health is derived at read time: an expired snapshot is a warning and becomes
+  a missing-provider critical issue after three TTL intervals;
+- current snapshots surface SMART failures, PVE storage usage at 90%/95%, and
+  Swarm services with fewer running than desired tasks;
 - stale snapshot bodies are then removed, while generation watermarks and the
   retired-generation set remain durable to reject delayed or replayed uploads;
 - each client is limited to 32 provider scopes and the plugin to 512 scopes;

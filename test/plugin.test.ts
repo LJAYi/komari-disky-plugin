@@ -192,6 +192,15 @@ describe("client status HTTP route", () => {
   });
 });
 
+describe("health summary HTTP route", () => {
+  it("is restricted to administrators", async () => {
+    expect((await getHealth({})).statusCode).toBe(401);
+    const response = await getHealth(adminContext());
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).data).toMatchObject({ status: expect.any(String) });
+  });
+});
+
 function agentContext(clientUUID: string): PluginRequest["context"] {
   return {
     principal: { type: "agent", client_uuid: clientUUID, roles: ["client"] },
@@ -252,6 +261,21 @@ async function getClientStatus(
     url: "/api/disky/v1/client-status",
     headers: {},
     query: { uuids },
+    body: "",
+    context,
+  }, response);
+  return response;
+}
+
+async function getHealth(context: PluginRequest["context"]): Promise<ResponseCapture> {
+  const handler = runtime.routes.get("GET /api/disky/v1/health");
+  if (!handler) throw new Error("health route was not registered");
+  const response = new ResponseCapture();
+  await handler({
+    method: "GET",
+    url: "/api/disky/v1/health",
+    headers: {},
+    query: {},
     body: "",
     context,
   }, response);

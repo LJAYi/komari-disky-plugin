@@ -114,6 +114,7 @@
           <button type="button" data-disky-view="storage">Storage</button>
           <button type="button" data-disky-view="networks">Networks</button>
         </nav>
+        <section id="health" class="health-summary hidden" aria-live="polite"></section>
         <section class="overview" id="overview" aria-live="polite"></section>
 
         <section id="resources" class="hidden">
@@ -218,8 +219,51 @@
       refreshAll().catch(showError);
 
       async function refreshAll() {
-        await Promise.all([loadOverview(), loadNodes()]);
+        await Promise.all([loadOverview(), loadNodes(), loadHealth()]);
+        renderHealth();
         await loadSummaries(true);
+      }
+
+      async function loadHealth() {
+        try {
+          const { data } = await requestJSON("/api/disky/v1/health");
+          state.health = data;
+        } catch (error) {
+          if (error.status !== 401 && error.status !== 403) throw error;
+          state.health = null;
+        }
+      }
+
+      function renderHealth() {
+        const root = document.querySelector("#health");
+        const health = state.health;
+        root.replaceChildren();
+        root.className = "health-summary hidden";
+        if (!health || health.status === "healthy" || !health.issues?.length) return;
+        root.className = `health-summary ${health.status}`;
+        const heading = element("div", "health-heading");
+        const title = document.createElement("strong");
+        title.textContent = health.status === "critical" ? "需要处理的资源问题" : "资源健康提示";
+        const counts = element("span", "health-counts");
+        counts.textContent = `${health.critical || 0} 严重 · ${health.warning || 0} 警告`;
+        heading.append(title, counts);
+        const list = element("div", "health-issues");
+        for (const issue of health.issues.slice(0, 8)) {
+          const row = element("div", `health-issue ${issue.severity}`);
+          const marker = element("span", "health-marker");
+          const body = element("div");
+          const label = document.createElement("strong");
+          label.textContent = issue.resource_name || state.clientNames.get(issue.source_client_uuid) || issue.provider_instance;
+          const detail = element("span", "health-detail");
+          detail.textContent = `${issue.message} · ${issue.provider} / ${issue.provider_instance} · ${formatRelative(issue.observed_at)}`;
+          body.append(label, detail); row.append(marker, body); list.append(row);
+        }
+        if (health.issues.length > 8) {
+          const more = element("div", "health-more");
+          more.textContent = `还有 ${health.issues.length - 8} 项问题`;
+          list.append(more);
+        }
+        root.append(heading, list);
       }
 
       async function loadOverview() {

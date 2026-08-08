@@ -24,4 +24,10 @@ describe("provider workspaces", () => {
     expect(page).toContain("Physical Disks & SMART");
     expect(page).toContain("ZFS Pools");
   });
+
+  it("surfaces derived provider and resource health", () => {
+    expect(page).toContain('id="health"');
+    expect(page).toContain('/api/disky/v1/health');
+    expect(page).toContain("需要处理的资源问题");
+  });
 });
